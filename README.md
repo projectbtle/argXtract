@@ -1,7 +1,7 @@
 ![banner](docs/svcxtract.png)
 
 # SVCXtract
-SVCXtract enables the extraction of arguments to SVC Calls from stripped binaries. Vendor-specific customisation is required before the tool can be used.
+SVCXtract enables the extraction of arguments to SVC Calls from stripped IoT binaries. Vendor-specific customisation is required before the tool can be used.
 
 
 ## Requirements
