@@ -6,6 +6,7 @@ import logging
 import numpy as np
 from capstone import *
 from capstone.arm import *
+from random import getrandbits
 from collections import Counter 
 from svcxtract.common import paths as common_paths
 from svcxtract.core import utils
@@ -827,8 +828,20 @@ class SvcAnalyser:
                 mem_address = int(address_bytes, 16)
                 if len(val) > 8: val = val[8:]
                 output_definition = arg_definition['data'][arg_name]
-                value_to_store = output_definition['store']
                 if output_definition['store_type'] == 'value':
+                    value_to_store = output_definition['store']
+                    output_object['memory'][mem_address] = value_to_store
+                    logging.debug(
+                        'Storing value '
+                        + str(value_to_store) 
+                        + ' to memory address: '
+                        + hex(mem_address)
+                    )
+                elif output_definition['store_type'] == 'random':
+                    num_random_bits = output_definition['length_bits']
+                    num_hex_chars = int(num_random_bits/4)
+                    value_to_store = hex(getrandbits(num_random_bits))[2:]
+                    value_to_store = value_to_store.zfill(num_hex_chars)
                     output_object['memory'][mem_address] = value_to_store
                     logging.debug(
                         'Storing value '
@@ -837,6 +850,7 @@ class SvcAnalyser:
                         + hex(mem_address)
                     )
                 else:
+                    value_to_store = output_definition['store']
                     split_path = value_to_store.split('->')
                     value_to_store = output_object['output']
                     for component in split_path:
@@ -848,6 +862,8 @@ class SvcAnalyser:
                         + ' to memory address: '
                         + hex(mem_address)
                     )
+                if output_definition['output'] == True:
+                    output_object['output'][arg_name] = value_to_store
         return output_object
         
     def convert_to_bit_string(self, value):
