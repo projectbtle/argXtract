@@ -1,3 +1,5 @@
+![banner](docs/svcxtract.png)
+
 # SVCXtract
 SVCXtract enables the extraction of arguments to SVC Calls from stripped binaries. Vendor-specific customisation is required before the tool can be used.
 
