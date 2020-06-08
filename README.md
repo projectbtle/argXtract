@@ -7,6 +7,9 @@ Python 3.7+ (older versions will **not** work).
 
 Install pre-requisites using `pip install -r requirements.txt`.
 
+## Configuration
+Even though parts of the tool are generic, it does not perform zero-knowledge analysis. Some vendor-specific information is required, and must be specified in a certain format. Details on how to do this are given in the [documentation](docs/vendor-config).
+
 
 ## Execution
 ```
