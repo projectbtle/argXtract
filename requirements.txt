@@ -1,0 +1,4 @@
+# Use `pip install -r requirements.txt`
+
+capstone
+numpy

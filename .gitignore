@@ -1,0 +1,5 @@
+**/__pycache__*
+**/*.pyc
+svcxtract/resources/vendor/*
+output/*.json
+fw_to_output.txt
