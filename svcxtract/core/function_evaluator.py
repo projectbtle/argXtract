@@ -4,10 +4,10 @@ import copy
 import logging
 from capstone import *
 from capstone.arm import *
-from svcxtract.config import common_paths
+from svcxtract.common import paths as common_paths
 from svcxtract.core import utils
 from svcxtract.core import consts
-from svcxtract.core import common_objs
+from svcxtract.common import objects as common_objs
 
 
 class FunctionEvaluator:

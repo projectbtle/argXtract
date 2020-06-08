@@ -10,7 +10,7 @@ from capstone import *
 from capstone.arm import *
 from svcxtract.core import utils
 from svcxtract.core import consts
-from svcxtract.core import common_objs
+from svcxtract.common import objects as common_objs
 
 
 class RegisterEvaluator:

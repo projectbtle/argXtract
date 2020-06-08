@@ -7,10 +7,10 @@ import numpy as np
 from capstone import *
 from capstone.arm import *
 from collections import Counter 
-from svcxtract.config import common_paths
+from svcxtract.common import paths as common_paths
 from svcxtract.core import utils
 from svcxtract.core import consts
-from svcxtract.core import common_objs
+from svcxtract.common import objects as common_objs
 from svcxtract.core.chipset_analyser import ChipsetAnalyser
 from svcxtract.core.register_evaluator import RegisterEvaluator
 
@@ -219,20 +219,36 @@ class SvcAnalyser:
         else:
             return self.chipset_analyser.get_svc_num(svc_name)
         
-    def process_svc_chains(self, svc_list):
-        # Get all SVC chains.
+    def get_svc_files(self):
+        svc_files = []
+        vendor_dir = os.path.join(
+            common_paths.resources_path,
+            'vendor',
+            common_objs.vendor,
+            'svc'
+        )
+        for root, dirs, filenames in os.walk(vendor_dir):
+            for filename in filenames:
+                if filename.endswith('.json'):
+                    svc_files.append(os.path.join(root, filename))
+        return svc_files
+        
+    def process_svc_chains(self):
         self.output_object = {
             'output': {},
             'memory': {}
         }
+        
+        # Get all SVC chains.
+        svc_list = self.get_svc_files()
+        if len(svc_list) == 0:
+            logging.critical('No SVC definition files found!')
+            return
+
         processing_object = {}
-        for svc_name in svc_list:
-            svc_file = os.path.join(
-                self.svc_definition_dir,
-                svc_name + '.json'
-            )
-            if not (os.path.isfile(svc_file)):
-                continue
+        for svc_file in svc_list:
+            svc_name = (os.path.basename(svc_file)).replace('.json', '')
+            print(svc_name)
             # Get the SVC identifier.
             svc_num = self.get_svc_num(svc_name)
             # Get call chains.

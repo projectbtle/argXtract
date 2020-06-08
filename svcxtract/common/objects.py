@@ -1,7 +1,7 @@
 import os
 import sys
 import json
-from svcxtract.config import common_paths
+from svcxtract.common import paths as common_paths
 from svcxtract.core import consts
 
 # Variables.

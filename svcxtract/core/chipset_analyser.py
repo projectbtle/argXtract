@@ -2,8 +2,8 @@ import os
 import sys
 import logging
 from svcxtract.core import consts
-from svcxtract.config import common_paths
-from svcxtract.core import common_objs
+from svcxtract.common import paths as common_paths
+from svcxtract.common import objects as common_objs
 
 
 class ChipsetAnalyser:

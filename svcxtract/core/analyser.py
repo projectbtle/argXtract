@@ -4,10 +4,10 @@ import json
 import numpy
 import timeit
 import logging
-from svcxtract.config import common_paths
 from svcxtract.core import utils
 from svcxtract.core import consts
-from svcxtract.core import common_objs
+from svcxtract.common import paths as common_paths
+from svcxtract.common import objects as common_objs
 from svcxtract.core.svc_analyser import SvcAnalyser
 from svcxtract.core.chipset_analyser import ChipsetAnalyser
 from svcxtract.core.disassembler import FirmwareDisassembler

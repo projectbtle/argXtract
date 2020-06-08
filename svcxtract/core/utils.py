@@ -2,9 +2,9 @@ import os
 import sys
 import logging
 from capstone.arm import *
-from svcxtract.config import common_paths
+from svcxtract.common import paths as common_paths
 from svcxtract.core import consts
-from svcxtract.core import common_objs
+from svcxtract.common import objects as common_objs
 
 
 def id_function_block_for_instruction(ins_address):
