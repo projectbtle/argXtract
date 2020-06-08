@@ -13,7 +13,7 @@ Even though parts of the tool are generic, it does not perform zero-knowledge an
 
 ## Execution
 ```
-usage: start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-m [{s,n}]]
+usage: python start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-v VENDOR]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -25,11 +25,8 @@ optional arguments:
   -c [{c,e,w,i,d,t}], --console [{c,e,w,i,d,t}]
                         console log level. One of c (critical), e (error), w (warning), i (info), d (debug), t
                         (trace).
-  -m [{s,n}], --mode [{s,n}]
-                        (trace) mode. Either s (strict) or n (non-strict). Strict mode checks conditions and follows
-                        all relevant branches. It offers higher accuracy, but requires far greater processing power
-                        and time. Non-strict mode (default) is more restrictive about which paths to follow. It offers
-                        reasonable accuracy and much shorter processing times.
+  -v VENDOR, --vendor VENDOR
+                        the vendor/chipset to test against. Vendor-specific files must be added to the repo.
 ```
 
 
