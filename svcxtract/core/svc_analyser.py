@@ -658,11 +658,25 @@ class SvcAnalyser:
             + ' from memory address: '
             + hex(mem_address)
         )
-        value = self.get_memory_bytes(
-            memory_regs['memory'],
-            mem_address,
-            num_bytes
-        )
+        
+        value = ''
+        if (num_bytes%4 == 0):
+            num_words = int(num_bytes/4)
+            for i in range(num_words):
+                read_word = self.get_memory_bytes(
+                    memory_regs['memory'],
+                    mem_address+4*i,
+                    4
+                )
+                if ((read_word == None) or (read_word == '')):
+                    read_word = '00000000'
+                value += read_word
+        else:
+            value = self.get_memory_bytes(
+                memory_regs['memory'],
+                mem_address,
+                num_bytes
+            )
         if ((value == None) or (value == '')):
             value = ''.zfill(num_bytes * 2)
         if len(value) < (num_bytes*2):
@@ -730,6 +744,7 @@ class SvcAnalyser:
     
     def process_endianness(self, bitstring, endian):
         string_len = int(endian.split('-')[1])
+        num_words = int(string_len/4)
         if endian.startswith('little'):
             converted_bits = ''.join(reversed([bitstring[i:i+string_len] 
                     for i in range(0, len(bitstring), string_len)]))
