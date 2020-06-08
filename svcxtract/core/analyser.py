@@ -139,8 +139,9 @@ class FirmwareAnalyser:
         final_output = {}
         final_output['filepath'] = common_paths.path_to_fw
         # Add chipset-specific metadata.
-        final_output['metadata'] = \
-            self.chipset_analyser.generate_output_metadata()
+        chipset_metadata = self.chipset_analyser.generate_output_metadata()
+        if ((chipset_metadata != {}) and (chipset_metadata != None)):
+            final_output['metadata'] = chipset_metadata
         # Add output object.
         final_output['output'] = output_object['output']
         return final_output

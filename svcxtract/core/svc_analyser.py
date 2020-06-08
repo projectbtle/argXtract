@@ -248,9 +248,10 @@ class SvcAnalyser:
         processing_object = {}
         for svc_file in svc_list:
             svc_name = (os.path.basename(svc_file)).replace('.json', '')
-            print(svc_name)
             # Get the SVC identifier.
             svc_num = self.get_svc_num(svc_name)
+            if svc_num == None:
+                continue
             # Get call chains.
             svc_chains = self.find_all_svc_chains(
                 svc_call=int(svc_num, 16),
