@@ -29,7 +29,7 @@ If vendor-specific variables were set, which are to be set per-file, then they m
 If there isn't an exact mapping available for the chipset and SVC set, then you might want some sort of majority vote-based method to assign the most likely SVC number (this should normally not be needed, in which case just use an empty function).
 
 
-Minimal example:
+## Minimal example:
 ```
 from svcxtract.common import objects as common_objs
 
