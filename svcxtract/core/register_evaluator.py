@@ -3,6 +3,7 @@ import sys
 import copy
 import json
 import struct
+import timeit
 import logging
 import collections
 import numpy as np
@@ -15,10 +16,12 @@ from svcxtract.common import objects as common_objs
 
 class RegisterEvaluator:
     def __init__(self):
-        pass
+        self.start_time = None
         
     def estimate_reg_values_for_trace_object(self, trace_obj, svc_instance): 
         logging.info('Starting register trace.')
+        
+        self.start_time = timeit.default_timer()
         
         self.svc_analyser = svc_instance
         self.master_trace_obj = trace_obj
@@ -94,7 +97,6 @@ class RegisterEvaluator:
                                 current_path, gc=0):
         """"""
         if start_point == None: return None
-
         # Make sure we aren't branching to the vector table, for some reason.
         code_start_point = common_objs.code_start_address
         # TODO: We just ignore it, for now, but we need to see why it happens.
@@ -3864,12 +3866,19 @@ class RegisterEvaluator:
         return
             
     def queue_handler(self):
-        """Call queue handler as long as queue is not empty. """
-        while (self.instruction_queue):
+        """Call queue handler as long as queue not empty and time available. """
+        while ((self.instruction_queue) and (self.time_check()!=True)):
             self.handle_queue()
 
+    def time_check(self):
+        """Check if elapsed time is greater than max alowable runtime. """
+        elapsed_time = timeit.default_timer() - self.start_time
+        if(elapsed_time >= common_objs.max_time):
+            return True
+        return False
+        
     def handle_queue(self):
-        """Pop first function object and execute. """
+        """Pop first function object and execute. """            
         function_block = self.instruction_queue.popleft()
         # Execute the method with the provided arguments.
         function_ref = function_block[0]

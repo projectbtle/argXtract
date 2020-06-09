@@ -4,9 +4,13 @@ import json
 from svcxtract.common import paths as common_paths
 from svcxtract.core import consts
 
-# Variables.
-compiler = consts.COMPILER_GCC
+#============ Generic variables ============
+max_time = 600 
 vendor = None
+
+#========== File-specific variables =========
+
+compiler = consts.COMPILER_GCC
 
 # Firmware breakdown.
 app_code_base = 0x00000000
