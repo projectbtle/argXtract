@@ -15,7 +15,7 @@ Even though the tracing and value analysis functionalities are generic, it does 
 
 ## Execution
 ```
-usage: python start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-v VENDOR]
+usage: python start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-t TIME] [-v VENDOR]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -27,6 +27,7 @@ optional arguments:
   -c [{c,e,w,i,d,t}], --console [{c,e,w,i,d,t}]
                         console log level. One of c (critical), e (error), w (warning), i (info), d (debug), t
                         (trace).
+  -t TIME, --time TIME  maximum trace time per file in seconds.
   -v VENDOR, --vendor VENDOR
                         the vendor/chipset to test against. Vendor-specific files must be added to the repo.
 ```

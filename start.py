@@ -4,7 +4,9 @@ import json
 import hashlib
 import logging
 import argparse
+from svcxtract.common import objects as common_objs
 from svcxtract.core.analyser import FirmwareAnalyser
+
 
 class ExtractaSVC:
     def __init__(self):
@@ -62,6 +64,13 @@ class ExtractaSVC:
                    + 'i (info), '
                    + 'd (debug), '
                    + 't (trace).'
+        )
+        self.argparser.add_argument(
+            '-t',
+            '--time',
+            type = str,
+            action = 'store',
+            help = 'maximum trace time per file in seconds.'
         )
         self.argparser.add_argument(
             '-v',
@@ -141,6 +150,10 @@ class ExtractaSVC:
         
         if args.vendor:
             self.vendor = args.vendor
+            
+        if args.time:
+            if int(args.time) > 0:
+                common_objs.max_time = int(args.time)
             
     def start_analysis(self):
         # Banner.

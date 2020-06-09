@@ -5,7 +5,7 @@ from svcxtract.common import paths as common_paths
 from svcxtract.core import consts
 
 #============ Generic variables ============
-max_time = 600 
+max_time = 300
 vendor = None
 
 #========== File-specific variables =========
