@@ -68,9 +68,16 @@ class ExtractaSVC:
         self.argparser.add_argument(
             '-t',
             '--time',
-            type = str,
+            type = int,
             action = 'store',
             help = 'maximum trace time per file in seconds.'
+        )
+        self.argparser.add_argument(
+            '-m',
+            '--max_call_depth',
+            type = int,
+            action = 'store',
+            help = 'maximum call depth of a function to be included in trace.'
         )
         self.argparser.add_argument(
             '-v',
@@ -152,8 +159,12 @@ class ExtractaSVC:
             self.vendor = args.vendor
             
         if args.time:
-            if int(args.time) > 0:
+            if args.time > 0:
                 common_objs.max_time = int(args.time)
+                
+        if args.max_call_depth:
+            if args.max_call_depth > 0:
+                common_objs.max_call_depth = args.max_call_depth
             
     def start_analysis(self):
         # Banner.
@@ -181,6 +192,8 @@ class ExtractaSVC:
             outputfilename = './output/' + digest + '.json'
             # Get analysis output.
             output = firmware_analyser.analyse_firmware(fw_file)
+            if output == None:
+                continue
             # Write to file.
             with open(outputfilename, 'w') as f: 
                 json.dump(output, f, indent=4)
