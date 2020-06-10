@@ -23,7 +23,7 @@ class FirmwareAnalyser:
         self.chipset_analyser = ChipsetAnalyser()
         self.chipset_analyser.initialise(vendor)
         if common_objs.vendor == None:
-            return
+            return None
         
         self.disassembler = FirmwareDisassembler()
         self.function_evaluator = FunctionEvaluator()
@@ -49,7 +49,7 @@ class FirmwareAnalyser:
                 + path_to_fw
                 + '" does not exist!'
             )
-            return
+            return None
         
         # Set path, once file is confirmed to exist.
         common_paths.path_to_fw = path_to_fw
@@ -67,7 +67,7 @@ class FirmwareAnalyser:
             logging.critical(
                 'Unable to match firmware to vendor.'
             )
-            return
+            return None
         
         # Set paths for SVC.
         self.svc_analyser.set_vendor_paths()
