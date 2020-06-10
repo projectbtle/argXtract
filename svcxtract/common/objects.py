@@ -7,6 +7,8 @@ from svcxtract.core import consts
 #============ Generic variables ============
 max_time = 300
 vendor = None
+allow_loops = True
+max_call_depth = 1
 
 #========== File-specific variables =========
 
