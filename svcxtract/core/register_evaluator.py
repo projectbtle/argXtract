@@ -146,7 +146,7 @@ class RegisterEvaluator:
             #  all instructions in order).
             if ins_address > end_of_function_block:
                 return
-            
+            if ins_address == 0x36d3e: return
             # If we have arrived at an end point, i.e., an SVC call, then
             #  send the registers and memory map to SVC Analyser, to process.
             if ins_address in end_points:
@@ -490,7 +490,7 @@ class RegisterEvaluator:
                 function_block = None
                 # We don't want to waste time on functions that have very 
                 #  high call-depth.
-                if call_depth > 1:
+                if call_depth > common_objs.max_call_depth:
                     logging.debug('Call-depth is too high.')
                     return (False, None)
 
@@ -705,6 +705,10 @@ class RegisterEvaluator:
             path_list = path_list[1:]
             traced_paths = traced_paths[element]
             counter += 1
+            
+        # Do not modify the order of this and subsequent return.
+        if common_objs.allow_loops == True:
+            return (False, new_path)
             
         if previously_traced == True:
             return (True, None)
@@ -1151,7 +1155,7 @@ class RegisterEvaluator:
                 register_object,
                 condition_flags
             )
-        elif instruction.id in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TST]:
+        elif instruction.id in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]:
             condition_flags = self.process_condition(
                 ins_address,
                 register_object,
@@ -1752,7 +1756,7 @@ class RegisterEvaluator:
             'int'
         )
         if operand1 == None: return condition_flags
-        (operand2, _) = self.get_src_reg_value(
+        (operand2, carry) = self.get_src_reg_value(
             register_object, 
             operands[1], 
             'int',
@@ -1760,7 +1764,6 @@ class RegisterEvaluator:
         )
         if operand2 == None: return condition_flags
         
-        carry = None
         overflow = None
         if opcode_id == ARM_INS_CMN:
             (result, carry, overflow) = \
@@ -1771,6 +1774,14 @@ class RegisterEvaluator:
         elif opcode_id == ARM_INS_TST:
             np_dtype = self.get_numpy_type([operand1, operand2])
             result = np.bitwise_and(
+                operand1.astype(np_dtype),
+                operand2.astype(np_dtype),
+                dtype=np_dtype,
+                casting='safe'
+            )
+        elif opcode_id == ARM_INS_TEQ:
+            np_dtype = self.get_numpy_type([operand1, operand2])
+            result = np.bitwise_xor(
                 operand1.astype(np_dtype),
                 operand2.astype(np_dtype),
                 dtype=np_dtype,
@@ -3147,12 +3158,15 @@ class RegisterEvaluator:
             if remaining_bytes >= 4:
                 format_string += 'I'
                 end_address = address + 4
+                obtained_bytes = 4
             elif remaining_bytes >= 2:
                 format_string += 'H'
                 end_address = address + 2
+                obtained_bytes = 2
             else:
                 format_string += 'B'
                 end_address = address + 1
+                obtained_bytes = 1
             data_bytes = common_objs.core_bytes[address:end_address]
             mem_value = self.reverse_bytes(data_bytes)
             mem_value = self.convert_type(mem_value, 'hex')
@@ -3161,8 +3175,8 @@ class RegisterEvaluator:
                 value = mem_value
             else:
                 value = value + mem_value
-            remaining_bytes -= 4
-            address += 4
+            remaining_bytes -= obtained_bytes
+            address += obtained_bytes
         # Type conversion.
         value = self.convert_type(value, dtype)
         return value
