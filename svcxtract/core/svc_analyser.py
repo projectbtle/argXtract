@@ -424,14 +424,16 @@ class SvcAnalyser:
             structured_data = self.process_pointer_data(
                 data_structure,
                 memory_regs,
-                mem_address
+                mem_address,
+                structured_data
             )
         else:
             value = self.convert_to_bit_string(val)
             structured_data = self.process_value_data(
                 data_structure,
                 memory_regs,
-                value
+                value,
+                structured_data
             )
 
         # Assign to output object.
@@ -450,7 +452,7 @@ class SvcAnalyser:
             )
         return output_object
     
-    def process_value_data(self, data_structure, memory_regs, value_in_bits):
+    def process_value_data(self, data_structure, memory_regs, value_in_bits, current_object):
         logging.debug(
             'Start Process Value Data , with starting bits: ' 
             + value_in_bits
@@ -467,7 +469,8 @@ class SvcAnalyser:
             element = self.format_element(
                 data_structure[arg_name],
                 memory_regs,
-                value_in_bits
+                value_in_bits,
+                current_object
             )
             structured_data[arg_name] = element
             return structured_data
@@ -483,38 +486,47 @@ class SvcAnalyser:
             structured_data[structure_element] = self.process_value_element(
                 data_structure[structure_element],
                 memory_regs,
-                value_in_bits
+                value_in_bits,
+                structured_data
             )
             # Update bitstring.
             if data_structure[structure_element]['ptr_val'] == 'pointer':
                 len_bits = 32
             else:
-                len_bits = data_structure[structure_element]['length_bits']
+                len_bits = self.get_length_field(
+                    data_structure[structure_element],
+                    structured_data
+                )
             value_in_bits = value_in_bits[len_bits:]
             
         return structured_data
         
-    def process_value_element(self, data_structure, memory_regs, value_in_bits):
+    def process_value_element(self, data_structure, memory_regs, value_in_bits, current_object):
         if data_structure['ptr_val'] == 'pointer':
             address = int(value_in_bits[0:32], 2)
             structured_data = self.process_pointer_data(
                 data_structure,
                 memory_regs,
-                address
+                address,
+                current_object
             )
         else:
-            len_bits = data_structure['length_bits']
+            len_bits = self.get_length_field(
+                data_structure,
+                current_object
+            )
             element_bits = value_in_bits[0:len_bits]
             if len(element_bits) < len_bits:
                 logging.error('Incorrect number of bits! ' + element_bits)
             structured_data = self.format_element(
                 data_structure,
                 memory_regs,
-                element_bits
+                element_bits,
+                current_object
             )
         return structured_data
         
-    def process_pointer_data(self, data_structure, memory_regs, mem_address):
+    def process_pointer_data(self, data_structure, memory_regs, mem_address, current_object):
         logging.debug(
             'Start Process Pointer Data , with starting address: ' 
             + hex(mem_address)
@@ -535,13 +547,18 @@ class SvcAnalyser:
                 modulo_remainder = mem_address % 4
                 mem_address += modulo_remainder
             else:
-                offset = int(data_structure[structure_element]['length_bits']/8)
+                len_bits = self.get_length_field(
+                    data_structure[structure_element],
+                    current_object
+                )
+                offset = int(len_bits/8)
             
             # Process according to different types.
             structured_data[structure_element] = self.process_pointer_element(
                 data_structure[structure_element],
                 memory_regs,
-                mem_address
+                mem_address,
+                structured_data
             )
             
             # Compute next address.
@@ -549,40 +566,47 @@ class SvcAnalyser:
             
         return structured_data
         
-    def process_pointer_element(self, data_structure, memory_regs, mem_address):
+    def process_pointer_element(self, data_structure, memory_regs, mem_address, current_object):
         # We consider 4 cases: 
         if ((data_structure['ptr_val'] == 'value') 
                 and (data_structure['type'] != 'dict')):
             structured_data = self.process_pointer_value_nondictionary(
                 data_structure,
                 memory_regs,
-                mem_address
+                mem_address,
+                current_object
             )
         elif ((data_structure['ptr_val'] == 'value') 
                 and (data_structure['type'] == 'dict')):
             structured_data = self.process_pointer_value_dictionary(
                 data_structure['data'],
                 memory_regs,
-                mem_address
+                mem_address,
+                current_object
             )
         elif ((data_structure['ptr_val'] == 'pointer') 
                 and (data_structure['type'] != 'dict')):
             structured_data = self.process_pointer_pointer_nondictionary(
                 data_structure,
                 memory_regs,
-                mem_address
+                mem_address,
+                current_object
             )
         else:
             structured_data = self.process_pointer_pointer_dictionary(
                 data_structure['data'],
                 memory_regs,
-                mem_address
+                mem_address,
+                current_object
             )
         return structured_data
             
-    def process_pointer_value_nondictionary(self, data_structure, memory_regs, mem_address):
+    def process_pointer_value_nondictionary(self, data_structure, memory_regs, mem_address, current_object):
         # Just read bits and format.
-        len_bits = data_structure['length_bits']
+        len_bits = self.get_length_field(
+            data_structure,
+            current_object
+        )
         num_bytes = int(len_bits/8)
         value = self.get_data_from_memory(
             memory_regs,
@@ -594,19 +618,21 @@ class SvcAnalyser:
         element = self.format_element(
             data_structure,
             memory_regs,
-            value_in_bits
+            value_in_bits,
+            current_object
         )
         return element
         
-    def process_pointer_value_dictionary(self, data_structure, memory_regs, mem_address):
+    def process_pointer_value_dictionary(self, data_structure, memory_regs, mem_address, current_object):
         element = self.process_pointer_data(
             data_structure,
             memory_regs,
-            mem_address
+            mem_address,
+            current_object
         )
         return element
         
-    def process_pointer_pointer_nondictionary(self, data_structure, memory_regs, mem_address):
+    def process_pointer_pointer_nondictionary(self, data_structure, memory_regs, mem_address, current_object):
         # Get address (from memory).
         address_value = self.get_data_from_memory(
             memory_regs,
@@ -616,7 +642,10 @@ class SvcAnalyser:
         new_address = int(address_value, 16)
         
         # Read from new address in memory.
-        len_bits = data_structure['length_bits']
+        len_bits = self.get_length_field(
+            data_structure,
+            current_object
+        )
         num_bytes = int(len_bits/8)
         value = self.get_data_from_memory(
             memory_regs,
@@ -631,11 +660,12 @@ class SvcAnalyser:
         element = self.format_element(
             data_structure,
             memory_regs,
-            value_in_bits
+            value_in_bits,
+            current_object
         )
         return element
         
-    def process_pointer_pointer_dictionary(self, data_structure, memory_regs, mem_address):
+    def process_pointer_pointer_dictionary(self, data_structure, memory_regs, mem_address, current_object):
         # Get address from memory.
         address_value = self.get_data_from_memory(
             memory_regs,
@@ -648,7 +678,8 @@ class SvcAnalyser:
         element = self.process_pointer_data(
             data_structure,
             memory_regs,
-            new_address
+            new_address,
+            current_object
         )
         return element
     
@@ -659,8 +690,16 @@ class SvcAnalyser:
             + ' from memory address: '
             + hex(mem_address)
         )
-        
-        value = ''
+
+        address_type = self.reg_eval.get_address_type(
+            mem_address,
+            memory_regs['memory']
+        )
+        if address_type is consts.ADDRESS_FIRMWARE:
+            value = self.reg_eval.get_firmware_bytes(mem_address, num_bytes, 'hex')
+            return value
+           
+        value = ''           
         if (num_bytes%4 == 0):
             num_words = int(num_bytes/4)
             for i in range(num_words):
@@ -703,34 +742,84 @@ class SvcAnalyser:
                 remaining_bytes -= 1
         return value
         
-    def process_bitfield_data(self, data_structure, memory_regs, value_in_bits):
+    def process_bitfield_data(self, data_structure, memory_regs, value_in_bits, current_object):
         structured_data = {}
         first_level_keys = list(data_structure.keys())
         for first_level_key in first_level_keys:
-            len_bits = data_structure[first_level_key]['length_bits']
+            len_bits = self.get_length_field(
+                data_structure[first_level_key],
+                current_object
+            )
             element_bits = value_in_bits[0:len_bits]
             value_in_bits = value_in_bits[len_bits:]
             if data_structure[first_level_key]['type'] == 'dict':
                 structured_data[first_level_key] = self.process_value_data(
                     data_structure[first_level_key]['data'],
                     memory_regs,
-                    element_bits
+                    element_bits,
+                    structured_data
                 )
             elif data_structure[first_level_key]['type'] == 'bitfield':
                 structured_data[first_level_key] = self.process_bitfield_data(
                     data_structure[first_level_key]['data'],
                     memory_regs,
-                    element_bits
+                    element_bits,
+                    structured_data
                 )
             else:
                 structured_data[first_level_key] = self.format_element(
                     data_structure[first_level_key],
                     memory_regs,
-                    element_bits
+                    element_bits,
+                    structured_data
                 )
         return structured_data
         
-    def format_element(self, format_structure, memory_regs, element_bits):
+    def get_length_field(self, data_structure, current_object):
+        length_bits = data_structure['length_bits']
+        if type(length_bits) is int:
+            return length_bits
+        
+        split_pattern = length_bits.split(' ')
+        arithmetic_function = []
+        for element in split_pattern:
+            element = element.strip()
+            if element in ['*', '+', '-']:
+                arithmetic_function.append(element)
+            elif element.isdigit():
+                arithmetic_function.append(int(element))
+            else:
+                element_value = self.get_previously_processed_data(
+                    element,
+                    current_object
+                )
+                arithmetic_function.append(int(element_value))
+        
+        if '*' in arithmetic_function:
+            arithmetic_function.remove('*')
+            output = arithmetic_function[0]
+            for value in arithmetic_function[1:]:
+                output = output * value
+        elif '+' in arithmetic_function:
+            arithmetic_function.remove('+')
+            output = arithmetic_function[0]
+            for value in arithmetic_function[1:]:
+                output = output + value
+        elif '-' in arithmetic_function:
+            arithmetic_function.remove('-')
+            output = arithmetic_function[0]
+            for value in arithmetic_function[1:]:
+                output = output - value
+        return output
+        
+    def get_previously_processed_data(self, pattern, current_object):
+        split_path = pattern.split('->')
+        value_to_store = current_object
+        for component in split_path:
+            value_to_store = value_to_store[component]
+        return value_to_store
+    
+    def format_element(self, format_structure, memory_regs, element_bits, current_object):
         if 'endian' in format_structure:
             element_bits = self.process_endianness(
                 element_bits,
@@ -739,7 +828,8 @@ class SvcAnalyser:
         element = self.convert_element_type(
             format_structure,
             element_bits,
-            memory_regs
+            memory_regs,
+            current_object
         )
         return element
     
@@ -753,12 +843,15 @@ class SvcAnalyser:
             converted_bits = bitstring
         return converted_bits
         
-    def convert_element_type(self, element_structure, element_bits, memory_regs):
-        len_bits = element_structure['length_bits']
+    def convert_element_type(self, element_structure, element_bits, memory_regs, current_object):
+        len_bits = self.get_length_field(
+            element_structure,
+            current_object
+        )
         if element_bits == None:
             return None
         dtype = element_structure['type']
-        if dtype == 'str':
+        if dtype == 'hex':
             element_value = int(element_bits, 2)
             len_halfbytes = int(len_bits/4)
             element_value = '{0:0{1}x}'.format(element_value, len_halfbytes)
@@ -784,13 +877,15 @@ class SvcAnalyser:
             element_value = self.process_value_data(
                 element_structure['data'],
                 memory_regs,
-                element_bits
+                element_bits,
+                current_object
             )
         elif dtype == 'bitfield':
             element_value = self.process_bitfield_data(
                 element_structure['data'],
                 memory_regs,
-                element_bits
+                element_bits,
+                current_object
             )
             
         return element_value
@@ -838,7 +933,10 @@ class SvcAnalyser:
                         + hex(mem_address)
                     )
                 elif output_definition['store_type'] == 'random':
-                    num_random_bits = output_definition['length_bits']
+                    num_random_bits = self.get_length_field(
+                        output_definition,
+                        output_object
+                    )
                     num_hex_chars = int(num_random_bits/4)
                     value_to_store = hex(getrandbits(num_random_bits))[2:]
                     value_to_store = value_to_store.zfill(num_hex_chars)
@@ -851,10 +949,11 @@ class SvcAnalyser:
                     )
                 else:
                     value_to_store = output_definition['store']
-                    split_path = value_to_store.split('->')
-                    value_to_store = output_object['output']
-                    for component in split_path:
-                        value_to_store = value_to_store[component]
+                    if '->' in value_to_store:
+                        value_to_store = self.get_previously_processed_data(
+                            value_to_store,
+                            output_object
+                        )
                     output_object['memory'][mem_address] = value_to_store
                     logging.debug(
                         'Storing value '
