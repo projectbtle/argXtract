@@ -3147,7 +3147,7 @@ class RegisterEvaluator:
             src_value = ''.zfill(num_bytes*2)
         return src_value
         
-    def get_firmware_bytes(self, address, num_bytes=4, dtype='hex'):
+    def get_firmware_bytes(self, address, num_bytes=4, dtype='hex', endian=common_objs.endian):
         address = address - common_objs.app_code_base
         end_address = address + num_bytes
         data_bytes = None
@@ -3168,7 +3168,10 @@ class RegisterEvaluator:
                 end_address = address + 1
                 obtained_bytes = 1
             data_bytes = common_objs.core_bytes[address:end_address]
-            mem_value = self.reverse_bytes(data_bytes)
+            if endian == 'little':
+                mem_value = self.reverse_bytes(data_bytes)
+            else:
+                mem_value = data_bytes
             mem_value = self.convert_type(mem_value, 'hex')
             
             if value == None:
@@ -3182,7 +3185,7 @@ class RegisterEvaluator:
         return value
     
     def get_memory_bytes(self, memory_map, address, num_bytes=4, dtype='hex', 
-                            unprocessed=False, endian='little'):
+                            unprocessed=False, endian=common_objs.endian):
         # If we want raw values, then use this.
         if unprocessed == True:
             value = self.get_unprocessed_memory_bytes(
@@ -3220,12 +3223,13 @@ class RegisterEvaluator:
         value = self.convert_type(value, dtype)
         return value
         
-    def get_memory_word(self, memory_map, address, endian='little'):
+    def get_memory_word(self, memory_map, address, endian=common_objs.endian):
         logging.debug(
             'Reading word '
             + 'from address ' + '{0:08x}'.format(address) 
             + ' in memory'
         )
+        if endian == None: endian = common_objs.endian
         out_value = ''
         for i in range(4):
             if (address+i) in memory_map:
@@ -3238,12 +3242,13 @@ class RegisterEvaluator:
                 out_value = out_value + concat_value
         return out_value
         
-    def get_memory_halfword(self, memory_map, address, endian='little'):
+    def get_memory_halfword(self, memory_map, address, endian=common_objs.endian):
         logging.debug(
             'Reading halfword '
             + 'from address ' + '{0:08x}'.format(address) 
             + ' in memory'
         )
+        if endian == None: endian = common_objs.endian
         out_value = ''
         for i in range(2):
             if (address+i) in memory_map:

@@ -608,10 +608,16 @@ class SvcAnalyser:
             current_object
         )
         num_bytes = int(len_bits/8)
+        
+        if 'byte-endian' in data_structure:
+            byte_endianness = data_structure['byte-endian']
+        else:
+            byte_endianness = None
         value = self.get_data_from_memory(
             memory_regs,
             mem_address,
-            num_bytes
+            num_bytes,
+            byte_endianness
         )
         # Convert to bits.
         value_in_bits = self.convert_to_bit_string(value)
@@ -640,17 +646,22 @@ class SvcAnalyser:
             4
         )
         new_address = int(address_value, 16)
-        
+
         # Read from new address in memory.
         len_bits = self.get_length_field(
             data_structure,
             current_object
         )
         num_bytes = int(len_bits/8)
+        if 'byte-endian' in data_structure:
+            byte_endianness = data_structure['byte-endian']
+        else:
+            byte_endianness = None
         value = self.get_data_from_memory(
             memory_regs,
             new_address,
-            num_bytes
+            num_bytes,
+            byte_endianness
         )
         
         # Convert to bits.
@@ -683,20 +694,26 @@ class SvcAnalyser:
         )
         return element
     
-    def get_data_from_memory(self, memory_regs, mem_address, num_bytes):
+    def get_data_from_memory(self, memory_regs, mem_address, num_bytes, 
+                endian=common_objs.endian):
         logging.debug(
             'Reading '
             + str(num_bytes)
             + ' from memory address: '
             + hex(mem_address)
         )
-
+        if num_bytes == 0: return ''
         address_type = self.reg_eval.get_address_type(
             mem_address,
             memory_regs['memory']
         )
         if address_type is consts.ADDRESS_FIRMWARE:
-            value = self.reg_eval.get_firmware_bytes(mem_address, num_bytes, 'hex')
+            value = self.reg_eval.get_firmware_bytes(
+                mem_address,
+                num_bytes,
+                'hex',
+                endian
+            )
             return value
            
         value = ''           
@@ -706,7 +723,8 @@ class SvcAnalyser:
                 read_word = self.get_memory_bytes(
                     memory_regs['memory'],
                     mem_address+4*i,
-                    4
+                    4,
+                    endian
                 )
                 if ((read_word == None) or (read_word == '')):
                     read_word = '00000000'
@@ -715,7 +733,8 @@ class SvcAnalyser:
             value = self.get_memory_bytes(
                 memory_regs['memory'],
                 mem_address,
-                num_bytes
+                num_bytes,
+                endian
             )
         if ((value == None) or (value == '')):
             value = ''.zfill(num_bytes * 2)
@@ -725,12 +744,15 @@ class SvcAnalyser:
                 value += '0'
         return value
         
-    def get_memory_bytes(self, memory_map, address, num_bytes=4):
+    def get_memory_bytes(self, memory_map, address, num_bytes=4, endian=common_objs.endian):
         if ((num_bytes == 4) and (address%4 == 0)):
-            value = self.reg_eval.get_memory_word(memory_map, address)
+            logging.debug('Getting memory word.')
+            value = self.reg_eval.get_memory_word(memory_map, address, endian)
         elif ((num_bytes == 2) and (address%2 == 0)):
-            value = self.reg_eval.get_memory_halfword(memory_map, address)
+            logging.debug('Getting memory half-word.')
+            value = self.reg_eval.get_memory_halfword(memory_map, address, endian)
         else:
+            logging.debug('Getting memory bytes.')
             remaining_bytes = num_bytes
             value = ''
             while remaining_bytes > 0:
@@ -740,6 +762,8 @@ class SvcAnalyser:
                     value += memory_map[address]
                 address += 1
                 remaining_bytes -= 1
+        if ((value == None) or (value == '')):
+            value = ''.zfill(num_bytes * 2)
         return value
         
     def process_bitfield_data(self, data_structure, memory_regs, value_in_bits, current_object):
@@ -820,10 +844,10 @@ class SvcAnalyser:
         return value_to_store
     
     def format_element(self, format_structure, memory_regs, element_bits, current_object):
-        if 'endian' in format_structure:
+        if 'word-endian' in format_structure:
             element_bits = self.process_endianness(
                 element_bits,
-                format_structure['endian']
+                format_structure['word-endian']
             )
         element = self.convert_element_type(
             format_structure,
@@ -848,7 +872,7 @@ class SvcAnalyser:
             element_structure,
             current_object
         )
-        if element_bits == None:
+        if ((element_bits == None) or (element_bits == '')):
             return None
         dtype = element_structure['type']
         if dtype == 'hex':
@@ -967,6 +991,7 @@ class SvcAnalyser:
         
     def convert_to_bit_string(self, value):
         if value == None: return value
+        if value == '': return value
         if type(value) is str:
             value = bin(int('1'+value, 16))[3:]
         else:
