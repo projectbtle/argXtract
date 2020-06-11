@@ -559,6 +559,8 @@ class FunctionEvaluator:
             instruction = common_objs.disassembled_firmware[iaddress]['insn']
             if instruction == None:
                 continue
+            if common_objs.disassembled_firmware[iaddress]['is_data'] == True:
+                continue
             operands = instruction.operands
             if instruction.id in [ARM_INS_MOV, ARM_INS_MOVW]:
                 src_operand = operands[1].value.reg
