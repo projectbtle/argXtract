@@ -56,7 +56,7 @@ class FirmwareDisassembler:
         )
         
     def disassemble_fw(self):
-        logging.debug(
+        logging.info(
             'Disassembling firmware using Capstone '
             + 'using disassembly start address: '
             + hex(common_objs.disassembly_start_address)

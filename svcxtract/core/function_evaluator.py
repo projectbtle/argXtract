@@ -451,6 +451,8 @@ class FunctionEvaluator:
         memset_address = None
         possible_memsets = []
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address < common_objs.code_start_address:
+                continue
             if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
                 continue
             # memset would be BL.
