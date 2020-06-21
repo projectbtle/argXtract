@@ -25,11 +25,6 @@ class FirmwareAnalyser:
         if common_objs.vendor == None:
             return None
         
-        self.disassembler = FirmwareDisassembler()
-        self.function_evaluator = FunctionEvaluator()
-        self.svc_analyser = SvcAnalyser()
-        self.register_evaluator = RegisterEvaluator()
-        
     def analyse_firmware(self, path_to_fw):
         # Start with clean slate.
         self.reset()
@@ -163,6 +158,16 @@ class FirmwareAnalyser:
         )
         
     def reset(self):
+        self.disassembler = None
+        self.function_evaluator = None
+        self.svc_analyser = None
+        self.register_evaluator = None
+        
+        self.disassembler = FirmwareDisassembler()
+        self.function_evaluator = FunctionEvaluator()
+        self.svc_analyser = SvcAnalyser()
+        self.register_evaluator = RegisterEvaluator()
+        
         # Reset paths.
         common_paths.path_to_fw = ''
         
@@ -192,3 +197,5 @@ class FirmwareAnalyser:
         common_objs.potential_start_points = []
         # Chipset-specific reset.
         self.chipset_analyser.reset()
+        
+        
