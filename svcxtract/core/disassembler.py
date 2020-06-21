@@ -45,6 +45,9 @@ class FirmwareDisassembler:
             common_objs.disassembled_firmware
         )
 
+        # Check again for inline data, but this time using inline addresses.
+        self.check_inline_address_instructions()
+        
         # Create backlinks.
         common_objs.disassembled_firmware = self.check_valid_branches(
             common_objs.disassembled_firmware
@@ -121,12 +124,12 @@ class FirmwareDisassembler:
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None:
                 continue
-                
+
             # If ID is 0, then it may mean inline data.
             if insn.id == ARM_INS_INVALID:
                 common_objs.disassembled_firmware[ins_address]['is_data'] = True
                 continue
-                
+   
             # If the instruction is not a valid LDR instruction, then don't bother.
             if self.check_valid_pc_ldr(insn) != True:
                 continue
@@ -135,7 +138,7 @@ class FirmwareDisassembler:
             # Target address is PC + offset.
             operands = insn.operands
             ldr_target = curr_pc_value + operands[1].mem.disp
-            
+
             if ldr_target not in common_objs.disassembled_firmware:
                 if ins_address not in common_objs.errored_instructions:
                     common_objs.errored_instructions.append(ins_address)
@@ -181,11 +184,9 @@ class FirmwareDisassembler:
                     data_bytes = data_bytes[0:2]
                     ordered_bytes = struct.unpack('<H', data_bytes)[0]
                 common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
-            elif insn.id in [ARM_INS_LDRB, ARM_INS_LDRSB]:
-                pass
             else:
-                pass
-            
+                continue
+
     def get_data_from_next_instruction(self, ldr_target, data_bytes):
         if (ldr_target+2) not in common_objs.disassembled_firmware:
             logging.error(
@@ -267,6 +268,48 @@ class FirmwareDisassembler:
                 return consts.ERROR_INVALID_INSTRUCTION
         return data_bytes
                     
+    def check_inline_address_instructions(self):
+        logging.debug('Checking for presence of inline addresses.')
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        min_address = all_addresses[0]
+        max_address = all_addresses[-1]
+        for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+                continue
+            insn = common_objs.disassembled_firmware[ins_address]['insn']
+            if insn == None:
+                continue
+            
+            # If the instruction is not a valid LDR instruction, then don't bother.
+            if self.check_valid_pc_ldr(insn) != True:
+                continue
+            if insn.id != ARM_INS_LDR:
+                continue
+            curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address)
+                
+            # Target address is PC + offset.
+            operands = insn.operands
+            ldr_target = curr_pc_value + operands[1].mem.disp
+            if 'data' not in common_objs.disassembled_firmware[ldr_target]:
+                print(ldr_target)
+            ordered_bytes = common_objs.disassembled_firmware[ldr_target]['data']
+            
+            # If it's an LDR instruction, then the bytes themselves may 
+            #  represent an address within the instructions.
+            if ((ordered_bytes >= min_address) and (ordered_bytes <= max_address)):
+                inline_address = ordered_bytes
+                if inline_address in common_objs.disassembled_firmware:
+                    logging.debug(
+                        'Marking inline address as data '
+                        + hex(inline_address)
+                    )
+                    common_objs.disassembled_firmware[inline_address]['is_data'] = True
+                    common_objs.disassembled_firmware[inline_address]['insn'] = None
+                    
+    # ------------------------------------------------------
     def check_valid_branches(self, disassembled_fw):
         logging.debug(
             'Checking basic branches and creating backlinks.'
