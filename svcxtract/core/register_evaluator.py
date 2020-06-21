@@ -128,13 +128,15 @@ class RegisterEvaluator:
             + hex(end_of_function_block)
             + ', counter: '
             + str(gc)
-            + ' and followed path: '
-            + current_path
+            #+ ' and followed path: '
+            #+ current_path
         )
 
         # Start from the starting point within assembly,
         #  and follow the instructions along the chain.
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
             # We don't want to process any instruction at an address
             #  lower than start point.
             if ins_address < start_point:
@@ -142,11 +144,10 @@ class RegisterEvaluator:
                 
             # We don't want to spill over to after the end of the current 
             #  function block (this can happen if a function doesn't
-            #  have a clear exit point, but also because we choose to process
-            #  all instructions in order).
+            #  have a clear exit point).
             if ins_address > end_of_function_block:
                 return
-            if ins_address == 0x36d3e: return
+                
             # If we have arrived at an end point, i.e., an SVC call, then
             #  send the registers and memory map to SVC Analyser, to process.
             if ins_address in end_points:
@@ -211,7 +212,6 @@ class RegisterEvaluator:
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
 
-            
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
@@ -1755,14 +1755,18 @@ class RegisterEvaluator:
             operands[0], 
             'int'
         )
-        if operand1 == None: return condition_flags
+        if operand1 == None: 
+            condition_flags = self.initialise_condition_flags()
+            return condition_flags
         (operand2, carry) = self.get_src_reg_value(
             register_object, 
             operands[1], 
             'int',
             condition_flags['c']
         )
-        if operand2 == None: return condition_flags
+        if operand2 == None: 
+            condition_flags = self.initialise_condition_flags()
+            return condition_flags
         
         overflow = None
         if opcode_id == ARM_INS_CMN:
@@ -1857,7 +1861,7 @@ class RegisterEvaluator:
         for operand in operands[1:]:
             dst_operand = self.get_dst_operand(operand)
             if dst_operand == None: return (next_reg_values, memory_map)
-            reg_value = self.get_value_from_memory(
+            (reg_value, _) = self.get_value_from_memory(
                 memory_map,
                 address
             )
@@ -1980,12 +1984,73 @@ class RegisterEvaluator:
             logging.warning('Misaligned LDR/H/B')
         num_halfbytes = int(num_bytes*2)
         
-        src_value = self.get_value_from_memory(
+        (src_value, null_value) = self.get_value_from_memory(
             memory_map,
             src_memory_address,
             unprocessed=True
         )
-        
+
+        # Hacky method to increase the odds of both branches 
+        #  being taken if an LDR value is used for comparison, 
+        #  and the value does not actually exist.
+        # We only do this if the address is outside the memory map
+        #  range. If the address is within the memory map range,
+        #  we just use all 0's only.
+        if null_value == True:
+            address_type = self.get_address_type(src_memory_address, memory_map)
+            if ((address_type != consts.ADDRESS_RAM) 
+                    and (address_type != consts.ADDRESS_STACK)
+                    and (address_type != consts.ADDRESS_FIRMWARE)):
+                next_address = self.get_next_address(
+                    self.all_addresses,
+                    ins_address
+                )
+                # One value is all 0's.
+                fake_value0 = ''.zfill(num_bytes*2)
+                src_value = fake_value0.zfill(8)
+                logging.debug('Fake value being loaded: ' + str(src_value))
+                next_reg_values0 = self.store_register_bytes(
+                    next_reg_values,
+                    dst_operand,
+                    src_value
+                )
+                self.add_to_queue([
+                    self.trace_register_values,
+                    next_address,
+                    copy.deepcopy(next_reg_values0),
+                    copy.deepcopy(memory_map),
+                    copy.deepcopy(condition_flags),
+                    copy.deepcopy(trace_obj),
+                    current_path,
+                    self.global_counter
+                ])
+                self.global_counter+=1
+                # One value is all f's.
+                fake_value1 = fake_value0.replace('0', 'f')
+                src_value = fake_value1.zfill(8)
+                logging.debug('Fake value being loaded: ' + str(src_value))
+                next_reg_values1 = self.store_register_bytes(
+                    next_reg_values,
+                    dst_operand,
+                    src_value
+                )
+                self.add_to_queue([
+                    self.trace_register_values,
+                    next_address,
+                    copy.deepcopy(next_reg_values1),
+                    copy.deepcopy(memory_map),
+                    copy.deepcopy(condition_flags),
+                    copy.deepcopy(trace_obj),
+                    current_path,
+                    self.global_counter
+                ])
+                self.global_counter+=1
+                # Don't return anything, because we don't want 
+                #  the existing trace to continue.
+                return(None, None)
+            
+        # Handle cases where None is returned (this will only happen 
+        #  if dtype is not hex.
         if src_value != None:
             if src_value.strip() == '': src_value = None
         if src_value == None:
@@ -1999,7 +2064,7 @@ class RegisterEvaluator:
                 src_value
             )
             return (next_reg_values, memory_map)
-
+                    
         # Get the required bytes.
         src_value = src_value.zfill(8)
         
@@ -2052,7 +2117,7 @@ class RegisterEvaluator:
         logging.debug(
             'LDR address: ' + hex(src_memory_address)
         )        
-        src_value1 = self.get_value_from_memory(
+        (src_value1, _) = self.get_value_from_memory(
             memory_map,
             src_memory_address,
             unprocessed=True,
@@ -2079,7 +2144,7 @@ class RegisterEvaluator:
         logging.debug(
             'LDR address: ' + hex(src_memory_address+4)
         )  
-        src_value2 = self.get_value_from_memory(
+        (src_value2, _) = self.get_value_from_memory(
             memory_map,
             src_memory_address+4,
             unprocessed=True,
@@ -3128,6 +3193,7 @@ class RegisterEvaluator:
                                 num_bytes=4, dtype='hex', unprocessed=False):
         address_type = self.get_address_type(address, memory_map)
         src_value = None
+        ret_none = False
         if address_type is consts.ADDRESS_FIRMWARE:
             src_value = self.get_firmware_bytes(address, num_bytes, dtype)
         else:
@@ -3144,10 +3210,13 @@ class RegisterEvaluator:
         if (((src_value == None) 
                 or (src_value == '')) 
                 and (dtype == 'hex')):
+            logging.debug('Returned value is empty or None.')
             src_value = ''.zfill(num_bytes*2)
-        return src_value
+            ret_none = True
+        return (src_value, ret_none)
         
-    def get_firmware_bytes(self, address, num_bytes=4, dtype='hex', endian=common_objs.endian):
+    def get_firmware_bytes(self, address, num_bytes=4, dtype='hex', 
+            endian=common_objs.endian):
         address = address - common_objs.app_code_base
         end_address = address + num_bytes
         data_bytes = None
@@ -3352,7 +3421,6 @@ class RegisterEvaluator:
         return memory_map
 
     def process_memset(self, memory_map, register_object, memset_obj):
-        
         logging.debug('Call to memset identified.')
         ptr_address = register_object[memset_obj['pointer']]
         if memset_obj['fixed_value'] != None:
@@ -3603,7 +3671,9 @@ class RegisterEvaluator:
                 bit_length = 16
             elif len(str) == 2:
                 bit_length = 8
-        if bit_length == None: logging.error('WHAT')
+        if bit_length == None: 
+            print(type(value))
+            logging.error('WHAT')
         return bit_length
         
     def get_binary_representation(self, value, length):
@@ -3846,13 +3916,10 @@ class RegisterEvaluator:
                 existing = result
                 if carry_in == 1:
                     if orig_x >= orig_y:
-                        result = orig_x-orig_y
                         carry_out = 1
                 if carry_in == 0:
                     if orig_x > orig_y:
-                        result = orig_x-orig_y-1
                         carry_out = 1
-                    
             return (result, carry_out, overflow)
         except:
             return (None, None, None)
