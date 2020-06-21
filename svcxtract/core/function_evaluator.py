@@ -66,9 +66,19 @@ class FunctionEvaluator:
         )
         function_block_start_addresses.sort()
         
+        # Step 3.
+        # Prune the function blocks.
+        function_block_start_addresses = self.prune_function_blocks(
+            function_block_start_addresses
+        )
+        function_block_start_addresses.sort()
+        
         # Create function block object.
         function_blocks = {}
         for idx, fb_start_address in enumerate(function_block_start_addresses):
+            if fb_start_address < common_objs.code_start_address:
+                continue
+                
             if 'xref_from' not in common_objs.disassembled_firmware[fb_start_address]:
                 xref_from = None
             else:
@@ -97,9 +107,9 @@ class FunctionEvaluator:
             debug_msg = 'Function block starting addresses:\n'
             for item in function_blocks.keys():
                 debug_msg += '\t\t\t\t' + hex(item) +'\n'
-        logging.trace(debug_msg)
+        logging.debug(debug_msg)
         common_objs.function_blocks = function_blocks
-        
+
         # Populate xref to.
         # We do this after assigning previous to common_objs,
         #  in order to be able to utilise the id_function_block_for_instruction
@@ -178,6 +188,8 @@ class FunctionEvaluator:
             )
         # Add self-targeting branches.
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
             at_address = common_objs.disassembled_firmware[ins_address]
             if at_address['is_data'] == True:
                 continue
@@ -202,6 +214,8 @@ class FunctionEvaluator:
     def check_branch_tos_at_certainty_level(self, function_block_start_addresses,
                                             certainty_level):
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
             if ins_address < common_objs.code_start_address:
                 continue
             # If it's data, rather than an instruction, then there is no use
@@ -395,6 +409,8 @@ class FunctionEvaluator:
     
     def check_opcodes_for_fb_start(self, function_block_start_addresses):
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
             if ins_address < common_objs.code_start_address:
                 continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
@@ -433,6 +449,80 @@ class FunctionEvaluator:
                 preexists = True
         return preexists
         
+    def prune_function_blocks(self, function_block_start_addresses):
+        logging.debug('Pruning function list.')
+        function_block_start_addresses = list(set(function_block_start_addresses))
+        fblocks_to_delete = []
+        
+        # We add the existing function blocks to common_objs, but 
+        #  only temporarily.
+        temp_obj = {}
+        for fblock in function_block_start_addresses:
+            temp_obj[fblock] = {}
+        common_objs.function_blocks = temp_obj
+        
+        # Now we go through the instructions and make sure all conditional 
+        #  branches occur within the same function block.
+        # The only problem is that stripped binaries don't can contain 
+        #  incorrect conditional branches (i.e., data that is interpreted as 
+        #  instruction.
+        for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+                continue
+            insn = common_objs.disassembled_firmware[ins_address]['insn']
+            if insn.id not in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
+                continue
+            if insn.id == ARM_INS_B:
+                if ((insn.cc == ARM_CC_AL) or (insn.cc == ARM_CC_INVALID)):
+                    continue
+                branch_target = insn.operands[0].value.imm
+            elif insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
+                branch_target = insn.operands[1].value.imm
+            
+            # If the target has the signature of a high- or medium-certainty 
+            #  function block, then don't remove it.
+            is_high_certainty_fblock = self.check_fb_candidate_high_certainty(
+                common_objs.disassembled_firmware, 
+                branch_target
+            )
+            if is_high_certainty_fblock == True:
+                continue
+            is_med_certainty_fblock = self.check_fb_candidate_med_certainty(
+                common_objs.disassembled_firmware, 
+                branch_target
+            )
+            if is_med_certainty_fblock == True:
+                continue
+            
+            src_block = utils.id_function_block_for_instruction(ins_address)
+            dst_block = utils.id_function_block_for_instruction(branch_target)
+            if src_block == dst_block:
+                continue
+            if branch_target > ins_address:
+                fblock_to_delete = dst_block
+            else:
+                fblock_to_delete = src_block
+            
+            # Now we can mark the function block for deletion.
+            if fblock_to_delete not in fblocks_to_delete:
+                fblocks_to_delete.append(fblock_to_delete)
+            logging.debug(
+                'Marking function block starting at '
+                + hex(fblock_to_delete)
+                + ' pointed to by instruction '
+                + hex(ins_address)
+                + ' for deletion.'
+            )
+                
+        # Remove the identified function blocks.
+        for fblock_to_delete in fblocks_to_delete:
+            if fblock_to_delete in function_block_start_addresses:
+                function_block_start_addresses.remove(fblock_to_delete)
+                
+        return function_block_start_addresses
+    
     #----------------- Find special functions ---------------------
     def identify_memory_access_functions(self):
         logging.info('Identifying pertinent functions.')
@@ -451,6 +541,8 @@ class FunctionEvaluator:
         memset_address = None
         possible_memsets = []
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
             if ins_address < common_objs.code_start_address:
                 continue
             if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
@@ -645,19 +737,6 @@ class FunctionEvaluator:
                     last_ins_for_target = at_address['last_insn_address']
                     if last_ins_for_target == branch_target:
                         return True
-                # curr_block = utils.id_function_block_for_instruction(
-                    # address
-                # )
-                # target_block = utils.id_function_block_for_instruction(
-                    # branch_target
-                # )
-                # if ((branch_target < address) and (curr_block == target_block)):
-                    # are_all_nop_error = self.check_all_nop_error(
-                        # branch_target,
-                        # address
-                    # )
-                    # if are_all_nop_error == True:
-                        # return True
             address = self.get_next_address(self.all_addresses, address)
         return False
         
