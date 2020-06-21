@@ -9,6 +9,7 @@ from svcxtract.common import objects as common_objs
 
 def id_function_block_for_instruction(ins_address):
     function_block_starts = list(common_objs.function_blocks.keys())
+    function_block_starts.sort()
     if ins_address in function_block_starts:
         return ins_address
         
