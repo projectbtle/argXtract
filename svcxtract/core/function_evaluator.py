@@ -480,6 +480,11 @@ class FunctionEvaluator:
                 branch_target = insn.operands[0].value.imm
             elif insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
                 branch_target = insn.operands[1].value.imm
+
+            if branch_target not in common_objs.disassembled_firmware:
+                if ins_address not in common_objs.errored_instructions:
+                    common_objs.errored_instructions.append(ins_address)
+                continue
             
             # If the target has the signature of a high- or medium-certainty 
             #  function block, then don't remove it.

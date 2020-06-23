@@ -3,4 +3,3 @@
 svcxtract/resources/vendor/*
 !svcxtract/resources/vendor/.gitignore
 output/*.json
-fw_to_output.txt

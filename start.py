@@ -11,6 +11,7 @@ from svcxtract.core.analyser import FirmwareAnalyser
 class ExtractaSVC:
     def __init__(self):
         self.vendor = None
+        self.processes = 1
         self.core_file_list = []
         self.loglevel = logging.INFO
         logging.getLogger().setLevel(self.loglevel)
@@ -86,6 +87,13 @@ class ExtractaSVC:
             action = 'store',
             help = 'the vendor/chipset to test against. '
                     + 'Vendor-specific files must be added to the repo.'
+        )
+        self.argparser.add_argument(
+            '-p',
+            '--processes',
+            type = int,
+            action = 'store',
+            help = 'number of parallel processes ("threads") to use.'
         )
         
     def check_args(self):
@@ -165,6 +173,10 @@ class ExtractaSVC:
         if args.max_call_depth:
             if args.max_call_depth > 0:
                 common_objs.max_call_depth = args.max_call_depth
+                
+        if args.processes:
+            if args.processes > 0:
+                self.processes = args.processes
             
     def start_analysis(self):
         # Banner.
@@ -178,7 +190,7 @@ class ExtractaSVC:
             str(len(self.core_file_list))
             + ' firmware files to analyse.'
         )
-        output_tracker = open('fw_to_output.txt', 'a')
+
         firmware_analyser = FirmwareAnalyser(self.vendor)
         for fw_file in self.core_file_list:
             #try:
@@ -197,8 +209,6 @@ class ExtractaSVC:
             # Write to file.
             with open(outputfilename, 'w') as f: 
                 json.dump(output, f, indent=4)
-            # Keep track of digest and associated filepath.
-            output_tracker.write(fw_file + ',' + digest + '\n')
 
 if __name__ == '__main__':
     analysable_instance = ExtractaSVC()

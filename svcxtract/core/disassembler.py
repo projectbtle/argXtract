@@ -156,6 +156,13 @@ class FirmwareDisassembler:
                     common_objs.errored_instructions.append(ins_address)
                 continue
             
+            logging.debug(
+                'Marking '
+                + hex(ldr_target)
+                + ' as data.'
+                
+            )
+                    
             # Now that we know the target address contains data, 
             #  not instructions, we set is_data to True, 
             #  and nullify instruction.

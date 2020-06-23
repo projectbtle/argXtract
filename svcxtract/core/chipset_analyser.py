@@ -17,6 +17,7 @@ class ChipsetAnalyser:
             common_paths.resources_path,
             'vendor'
         )
+
         vendor_dirs = next(os.walk(self.path_to_vendors))[1]
         if vendor == None:
             if len(vendor_dirs) > 1:
@@ -38,11 +39,6 @@ class ChipsetAnalyser:
                 common_objs.vendor = None
                 return
 
-        logging.info(
-            'Checking firmware against pattern for '
-            + vendor
-        )
-        
         # Load vendor-specific module.
         vendor_analyser_path = os.path.join(
             self.path_to_vendors,

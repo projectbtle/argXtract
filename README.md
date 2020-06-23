@@ -15,7 +15,8 @@ Even though the tracing and value analysis functionalities are generic, it does 
 
 ## Execution
 ```
-usage: python start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-t TIME] [-v VENDOR]
+usage: start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-t TIME] [-m MAX_CALL_DEPTH] [-v VENDOR] 
+                [-p PROCESSES]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -28,10 +29,17 @@ optional arguments:
                         console log level. One of c (critical), e (error), w (warning), i (info), d (debug), t
                         (trace).
   -t TIME, --time TIME  maximum trace time per file in seconds.
+  -m MAX_CALL_DEPTH, --max_call_depth MAX_CALL_DEPTH
+                        maximum call depth of a function to be included in trace.
   -v VENDOR, --vendor VENDOR
                         the vendor/chipset to test against. Vendor-specific files must be added to the repo.
+  -p PROCESSES, --processes PROCESSES
+                        number of parallel processes ("threads") to use.
 ```
 
 
 ## Output
 An individual JSON file is generated per analysed file, and all such output JSONs are placed within the `output` directory. The SHA256 hash of the file is used as the name for the output file, and the `hash,filepath` pairs are saved in 'fw_to_output.txt' within the root directory.
+
+## Notes
+SVCXtract avoids internal loops within the Reset Handler, and external branches to any function that is not present within the trace object. Including these elements would not add much information in general, and would significantly increase analysis time. If there is a use case for including them, please let us know by raising an issue.

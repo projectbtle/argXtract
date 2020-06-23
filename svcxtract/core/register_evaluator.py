@@ -21,6 +21,8 @@ class RegisterEvaluator:
     def estimate_reg_values_for_trace_object(self, trace_obj, svc_instance): 
         logging.info('Starting register trace.')
         
+        logging.debug('Trace object:\n' + json.dumps(trace_obj, indent=4))
+        
         self.start_time = timeit.default_timer()
         
         self.svc_analyser = svc_instance
@@ -69,6 +71,9 @@ class RegisterEvaluator:
             # Keep track of conditional flags.
             condition_flags = self.initialise_condition_flags()
         
+            # Keep track of a register (or registers) that are null.
+            null_registers = {}
+            
             self.checked_paths[hex(start_point)] = {}
             current_path = hex(start_point)
             
@@ -81,6 +86,7 @@ class RegisterEvaluator:
                 condition_flags,
                 trace_obj[start_point],
                 current_path,
+                null_registers,
                 self.global_counter
             ])
         
@@ -94,7 +100,7 @@ class RegisterEvaluator:
     
     def trace_register_values(self, start_point, register_object,  
                                 memory_map, condition_flags, trace_obj, 
-                                current_path, gc=0):
+                                current_path, null_registers={}, gc=0):
         """"""
         if start_point == None: return None
         # Make sure we aren't branching to the vector table, for some reason.
@@ -141,13 +147,13 @@ class RegisterEvaluator:
             #  lower than start point.
             if ins_address < start_point:
                 continue
-                
-            # We don't want to spill over to after the end of the current 
-            #  function block (this can happen if a function doesn't
-            #  have a clear exit point).
-            if ins_address > end_of_function_block:
+
+            # We assume that the code must contain ways to skip inline data
+            #  (such as via branches), so if we encounter inline data, 
+            #  we must have come to end of executable part of function.
+            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
                 return
-                
+            
             # If we have arrived at an end point, i.e., an SVC call, then
             #  send the registers and memory map to SVC Analyser, to process.
             if ins_address in end_points:
@@ -197,12 +203,12 @@ class RegisterEvaluator:
                 #  for the SVC Call instruction.
                 # So continue to next instruction.
                 continue
-                
+
             # Instructions we needn't process (NOP, etc).
             skip_insn = self.check_skip_instruction(ins_address)
             if skip_insn == True:
                 continue
-                
+
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             opcode_id = insn.id
             
@@ -211,7 +217,8 @@ class RegisterEvaluator:
             logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
-
+            print(hex(ins_address))
+            
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
@@ -222,7 +229,8 @@ class RegisterEvaluator:
                     current_path,
                     ins_address,
                     condition_flags,
-                    branch_points
+                    branch_points,
+                    null_registers
                 )
                 
                 if should_execute_next_instruction == True:
@@ -237,7 +245,8 @@ class RegisterEvaluator:
                     condition_flags,
                     trace_obj,
                     current_path,
-                    ins_address
+                    ins_address,
+                    null_registers
                 )
                 return
             # IT instructions.
@@ -248,19 +257,21 @@ class RegisterEvaluator:
                     trace_obj,
                     current_path,
                     ins_address,
-                    condition_flags
+                    condition_flags,
+                    null_registers
                 )
                 return
                 
             # Compute the values of the registers.
-            (register_object, memory_map, condition_flags) = \
+            (register_object, memory_map, condition_flags, null_registers) = \
                 self.process_reg_values_for_instruction(
                     register_object,
                     memory_map,
                     trace_obj,
                     current_path,
                     ins_address,
-                    condition_flags
+                    condition_flags,
+                    null_registers
                 )
             # In the event that PC is passed to POP, there will be a branch.
             #  Presumably we wouldn't continue with the current trace then.
@@ -282,7 +293,8 @@ class RegisterEvaluator:
         
     def process_branch_instruction(self, register_object, memory_map,
                                     trace_obj, current_path, ins_address,
-                                    condition_flags, branch_points):
+                                    condition_flags, branch_points, 
+                                    null_registers):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         opcode_id = insn.id
         operands = insn.operands
@@ -398,6 +410,7 @@ class RegisterEvaluator:
             copy.deepcopy(condition_flags),
             copy.deepcopy(trace_obj),
             current_path,
+            copy.deepcopy(null_registers),
             self.global_counter
         ])
         
@@ -413,6 +426,12 @@ class RegisterEvaluator:
         if (branch_target == None): 
             return (False, None)
 
+        if calling_address in common_objs.errored_instructions:
+            return (False, None)
+            
+        if branch_target < common_objs.code_start_address:
+            return (False, None)
+            
         logging.debug('Checking whether we should follow this branch')
 
         insn = common_objs.disassembled_firmware[calling_address]['insn']
@@ -423,7 +442,10 @@ class RegisterEvaluator:
         # If null target not in f/w addresses, we can't proceed with branch.
         if (branch_target not in self.all_addresses):
             logging.warning(
-                'Branch target does not exist in firmware.'
+                'Branch target '
+                + hex(branch_target)
+                + ' does not exist in firmware. '
+                + hex(calling_address)
             )
             return (False, None)
             
@@ -454,9 +476,15 @@ class RegisterEvaluator:
             return (False, None)
         
         # The Reset Handler has a lot of self-looping. Avoid.
-        if curr_function_block == target_function_block:
-            reset_handler = int(common_objs.application_vector_table['reset'])
-            if curr_function_block == reset_handler:
+        reset_handler = int(common_objs.application_vector_table['reset'])
+        if curr_function_block == reset_handler:
+            if curr_function_block == target_function_block:
+                logging.debug('Avoiding internal loops within Reset Handler.')
+                return (False, None)
+            # We also want to avoid bl to anything other than what is in 
+            #  trace object, IF the caller is the reset handler.
+            elif calling_address not in trace_obj['branch_or_end_points']:
+                logging.debug('Avoiding external branches from Reset Handler.')
                 return (False, None)
             
         # Check if path already traced.
@@ -755,7 +783,8 @@ class RegisterEvaluator:
     #----------------  Table Branch-related ----------------
     def process_table_branch_instruction(self, register_object, memory_map,
                                             condition_flags, trace_obj, 
-                                            current_path, ins_address):
+                                            current_path, ins_address, 
+                                            null_registers):
         # The Definitive Guide to the ARM Cortex-M3
         #  By Joseph Yiu (pg 76)
         
@@ -833,6 +862,7 @@ class RegisterEvaluator:
             copy.deepcopy(condition_flags),
             copy.deepcopy(trace_obj),
             new_path,
+            copy.deepcopy(null_registers),
             self.global_counter
         ])
         self.global_counter+=1     
@@ -930,7 +960,8 @@ class RegisterEvaluator:
 
     # ------------------ IT instruction block handling ----------------------
     def process_it_instruction(self, register_object, memory_map,
-                                trace_obj, current_path, ins_address, condition_flags):
+                                trace_obj, current_path, ins_address, 
+                                condition_flags, null_registers):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         opcode_id = insn.id
         next_reg_values = register_object
@@ -987,7 +1018,8 @@ class RegisterEvaluator:
                 current_path,
                 then_instructions,
                 ins_address,
-                postconditional_ins_address
+                postconditional_ins_address,
+                copy.deepcopy(null_registers)
             )
         
         # Execute Else instructions.
@@ -1000,12 +1032,14 @@ class RegisterEvaluator:
                 current_path,
                 else_instructions,
                 ins_address,
-                postconditional_ins_address
+                postconditional_ins_address,
+                copy.deepcopy(null_registers)
             )
         
     def execute_it_conditionals(self, register_object, memory_map, condition_flags,
                                     trace_obj, current_path, ins_list, 
-                                    original_address, branching_address):
+                                    original_address, branching_address,
+                                    null_registers):
         next_reg_values = register_object
             
         for conditional_address in ins_list:
@@ -1036,17 +1070,19 @@ class RegisterEvaluator:
                     current_path,
                     conditional_address,
                     condition_flags,
-                    branch_points
+                    branch_points,
+                    null_registers
                 )
             else:
-                (next_reg_values, memory_map, condition_flags) = \
+                (next_reg_values, memory_map, condition_flags, null_registers) = \
                     self.process_reg_values_for_instruction(
                         next_reg_values,
                         memory_map,
                         trace_obj,
                         current_path,
                         conditional_address,
-                        condition_flags
+                        condition_flags,
+                        null_registers
                     )
                 
             # In the event that PC is passed to POP, there will be a branch.
@@ -1068,6 +1104,7 @@ class RegisterEvaluator:
             copy.deepcopy(condition_flags),
             copy.deepcopy(trace_obj),
             current_path,
+            copy.deepcopy(null_registers),
             self.global_counter
         ])
         self.global_counter += 1
@@ -1077,7 +1114,7 @@ class RegisterEvaluator:
     
     def process_reg_values_for_instruction(self, register_object, memory_map, 
                                 trace_obj, current_path, ins_address, 
-                                condition_flags=None):
+                                condition_flags, null_registers):
         instruction = common_objs.disassembled_firmware[ins_address]['insn']
         
         # If the instruction is to be executed conditionally, first check 
@@ -1089,265 +1126,301 @@ class RegisterEvaluator:
                     condition_flags
                 )
                 if is_condition_satisfied == False:
-                    return (register_object, memory_map, condition_flags)
+                    return (register_object, memory_map, condition_flags, null_registers)
         
         # Process instruction.        
         if instruction.id == ARM_INS_ADC:
-            (register_object, condition_flags) = self.process_adc(
+            (register_object, condition_flags, null_registers) = self.process_adc(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_ADD, ARM_INS_ADDW]:
-            (register_object, condition_flags) = self.process_add(
+            (register_object, condition_flags, null_registers) = self.process_add(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_ADR:
-            register_object = self.process_adr(
+            (register_object, null_registers) = self.process_adr(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_AND:
-            (register_object, condition_flags) = self.process_and(
+            (register_object, condition_flags, null_registers) = self.process_and(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_ASR:
-            (register_object, condition_flags) = self.process_asr(
+            (register_object, condition_flags, null_registers) = self.process_asr(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_BFC:
-            register_object = self.process_bfc(
+            (register_object, null_registers) = self.process_bfc(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_BFI:
-            register_object = self.process_bfi(
+            (register_object, null_registers) = self.process_bfi(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_BIC:
-            (register_object, condition_flags) = self.process_bic(
+            (register_object, condition_flags, null_registers) = self.process_bic(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_CLZ:
-            register_object = self.process_clz(
+            (register_object, null_registers) = self.process_clz(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]:
-            condition_flags = self.process_condition(
+            (condition_flags, null_registers) = self.process_condition(
                 ins_address,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
+            if condition_flags == None:
+                register_object = None
         elif instruction.id == ARM_INS_EOR:
-            (register_object, condition_flags) = self.process_eor(
+            (register_object, condition_flags, null_registers) = self.process_eor(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_LDM:
-            (register_object, memory_map) = self.process_ldm(
+            (register_object, memory_map, null_registers) = self.process_ldm(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
                 trace_obj,
                 current_path,
-                condition_flags
+                condition_flags,
+                null_registers
             ) 
         elif instruction.id in [ARM_INS_LDR, ARM_INS_LDREX, 
                     ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH, 
                     ARM_INS_LDRB, ARM_INS_LDRSB, ARM_INS_LDREXB]:
-            (register_object, memory_map) = self.process_ldr(
+            (register_object, memory_map, null_registers) = self.process_ldr(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
                 trace_obj,
                 current_path,
-                condition_flags
+                condition_flags,
+                null_registers
             ) 
         elif instruction.id == ARM_INS_LDRD:
-            (register_object, memory_map) = self.process_ldrd(
+            (register_object, memory_map, null_registers) = self.process_ldrd(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
                 trace_obj,
                 current_path,
-                condition_flags
+                condition_flags,
+                null_registers
             ) 
         elif instruction.id == ARM_INS_LSL:
-            (register_object, condition_flags) = self.process_lsl(
+            (register_object, condition_flags, null_registers) = self.process_lsl(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_LSR:
-            (register_object, condition_flags) = self.process_lsr(
+            (register_object, condition_flags, null_registers) = self.process_lsr(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_MOV, ARM_INS_MOVW]:
-            (register_object, condition_flags) = self.process_mov(
+            (register_object, condition_flags, null_registers) = self.process_mov(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_MUL:
-            (register_object, condition_flags) = self.process_mul(
+            (register_object, condition_flags, null_registers) = self.process_mul(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_MVN:
-            (register_object, condition_flags) = self.process_mvn(
+            (register_object, condition_flags, null_registers) = self.process_mvn(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_ORN:
-            (register_object, condition_flags) = self.process_orn(
+            (register_object, condition_flags, null_registers) = self.process_orn(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_ORR:
-            (register_object, condition_flags) = self.process_orr(
+            (register_object, condition_flags, null_registers) = self.process_orr(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_POP:
-            (register_object, memory_map) = self.process_pop(
+            (register_object, memory_map, null_registers) = self.process_pop(
                 register_object,
                 trace_obj,
                 ins_address,
                 instruction,
                 memory_map,
                 current_path,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_PUSH:
-            (register_object, memory_map) = self.process_push(
+            (register_object, memory_map, null_registers) = self.process_push(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_REV:
-            register_object = self.process_rev(
+            (register_object, null_registers) = self.process_rev(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_ROR:
-            (register_object, condition_flags) = self.process_ror(
+            (register_object, condition_flags, null_registers) = self.process_ror(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_RRX:
-            (register_object, condition_flags) = self.process_rrx(
+            (register_object, condition_flags, null_registers) = self.process_rrx(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_RSB:
-            (register_object, condition_flags) = self.process_rsb(
+            (register_object, condition_flags, null_registers) = self.process_rsb(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_SBC:
-            (register_object, condition_flags) = self.process_sbc(
+            (register_object, condition_flags, null_registers) = self.process_sbc(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_STR, ARM_INS_STREX, 
                 ARM_INS_STRH, ARM_INS_STREXH, 
                 ARM_INS_STRB, ARM_INS_STREXB]:
-            (register_object, memory_map) = self.process_str(
+            (register_object, memory_map, null_registers) = self.process_str(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_STRD:
-            (register_object, memory_map) = self.process_strd(
+            (register_object, memory_map, null_registers) = self.process_strd(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_STM:
-            (register_object, memory_map) = self.process_stm(
+            (register_object, memory_map, null_registers) = self.process_stm(
                 ins_address,
                 instruction,
                 register_object,
                 memory_map,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_SUB, ARM_INS_SUBW]:
-            (register_object, condition_flags) = self.process_sub(
+            (register_object, condition_flags, null_registers) = self.process_sub(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_SXTB, ARM_INS_SXTH]:
-            register_object = self.process_sxt(
+            (register_object, null_registers) = self.process_sxt(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id in [ARM_INS_UXTB, ARM_INS_UXTH]:
-            register_object = self.process_uxt(
+            (register_object, null_registers) = self.process_uxt(
                 ins_address,
                 instruction,
                 register_object,
-                condition_flags
+                condition_flags,
+                null_registers
             )
         elif instruction.id == ARM_INS_SVC:
             # We assume that all SVC calls return 0 (i.e., no error).
@@ -1360,16 +1433,41 @@ class RegisterEvaluator:
             if ('dsb' not in instruction.mnemonic):
                 if instruction.mnemonic not in self.unhandled:
                     self.unhandled.append(instruction.mnemonic)
-            return (register_object, memory_map, condition_flags)
-        return (register_object, memory_map, condition_flags)
+            return (register_object, memory_map, condition_flags, null_registers)
+        return (register_object, memory_map, condition_flags, null_registers)
 
+    def update_null_registers(self, null_registers, src_ops, dst_ops):
+        for dst_op in dst_ops:
+            if dst_op in src_ops:
+                continue
+            if dst_op == ARM_REG_INVALID:
+                continue
+            if dst_op in list(null_registers.keys()):
+                del null_registers[dst_op]
+    
+        for src_op in src_ops:
+            if src_op == ARM_REG_INVALID:
+                continue
+            if src_op in list(null_registers.keys()):
+                for dst_op in dst_ops:
+                    logging.debug(
+                        'Register '
+                        + str(dst_op)
+                        + ' tainted by null register '
+                        + str(src_op)
+                    )
+                    null_registers[dst_op] = {}
+                break
+        return null_registers
+    
     def process_adc(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -1377,19 +1475,30 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             add_operand = operands[2]
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, add_operand.value.reg],
+            [dst_operand]
+        )
+        
+        # Get values.
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
             add_operand, 
             'int',
             condition_flags['c']
         )
-        if add_value == None: return (next_reg_values, condition_flags)
+        if add_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
 
         carry_in = condition_flags['c']
         if carry_in == None: carry_in = 0
@@ -1412,15 +1521,16 @@ class RegisterEvaluator:
                 carry,
                 overflow
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_add(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -1428,19 +1538,30 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             add_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, add_operand.value.reg],
+            [dst_operand]
+        )
+        
+        # Get values.
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values,
             add_operand,
             'int',
             condition_flags['c']
         )
-        if add_value == None: return (next_reg_values, condition_flags)
+        if add_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         (result, carry, overflow) = self.add_with_carry(start_value, add_value)
 
@@ -1456,23 +1577,32 @@ class RegisterEvaluator:
                 carry,
                 overflow
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
     
     def process_adr(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         pc_value = self.get_mem_access_pc_value(ins_address)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
             operands[1], 
             'int'
-        )
-        if add_value == None: return next_reg_values
+        )        
+        if add_value == None: 
+            return (next_reg_values, null_registers)
         
         if operands[1].subtracted == True:
             result = pc_value - add_value
@@ -1484,15 +1614,16 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
         
     def process_and(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -1500,19 +1631,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             and_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, and_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (and_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             and_operand, 
             'int',
             condition_flags['c']
         )
-        if and_value == None: return (next_reg_values, condition_flags)
+        if and_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, and_value])
         result = np.bitwise_and(
@@ -1533,22 +1674,31 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_asr(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
             operands[1], 
             'int'
         )
-        if src_value == None: return (next_reg_values, condition_flags)
+        if src_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         # Process shift.
         if len(operands) == 2:
@@ -1569,22 +1719,26 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_bfc(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+
+        # We needn't update null registers, because src and dst are the same.
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
             operands[0], 
             'int'
         )
-        if src_value == None: return next_reg_values
+        if src_value == None: 
+            return (next_reg_values, null_registers)
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[1], 'int')
         (width, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
@@ -1606,29 +1760,39 @@ class RegisterEvaluator:
             dst_operand,
             new_value
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
     
     def process_bfi(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [dst_operand, operands[1].value.reg],
+            [dst_operand]
+        )
         
         (original_value, _) = self.get_src_reg_value(
             next_reg_values,
             operands[0],
             'int'
         )
-        if original_value == None: return next_reg_values
+        if original_value == None: 
+            return (next_reg_values, null_registers)
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values,
             operands[1],
             'int'
         )
-        if src_value == None: return next_reg_values
+        if src_value == None: 
+            return (next_reg_values, null_registers)
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
         (width, _) = self.get_src_reg_value(next_reg_values, operands[3], 'int')
@@ -1655,15 +1819,16 @@ class RegisterEvaluator:
             dst_operand,
             new_value
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
         
     def process_bic(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -1671,19 +1836,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             not_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, not_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (not_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             not_operand, 
             'int',
             condition_flags['c']
         )
-        if not_value == None: return (next_reg_values, condition_flags)
+        if not_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
 
         np_dtype = self.get_numpy_type([start_value, not_value])
         inverted_not_value = np.bitwise_not(
@@ -1709,23 +1884,33 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
     
     def process_clz(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
         
         src_operand = operands[1]
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [src_operand.value.reg],
+            [dst_operand]
+        )
+        
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
             src_operand, 
             'hex'
         )
-        if src_value == None: return next_reg_values
+        if src_value == None: 
+            return (next_reg_values, null_registers)
         
         num_bits = int(len(src_value) * 2)
         result_in_bits = self.get_binary_representation(src_value, num_bits)
@@ -1743,9 +1928,10 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
         
-    def process_condition(self, ins_address, register_object, condition_flags):
+    def process_condition(self, ins_address, register_object, condition_flags,
+                            null_registers):
         instruction = common_objs.disassembled_firmware[ins_address]['insn']
         opcode_id = instruction.id
         operands = instruction.operands
@@ -1757,7 +1943,7 @@ class RegisterEvaluator:
         )
         if operand1 == None: 
             condition_flags = self.initialise_condition_flags()
-            return condition_flags
+            return (condition_flags, null_registers)
         (operand2, carry) = self.get_src_reg_value(
             register_object, 
             operands[1], 
@@ -1766,8 +1952,18 @@ class RegisterEvaluator:
         )
         if operand2 == None: 
             condition_flags = self.initialise_condition_flags()
-            return condition_flags
+            return (condition_flags, null_registers)
         
+        # Process null_registers
+        if (operands[0].value.reg) in null_registers:
+            condition_flags = self.initialise_condition_flags()
+            return (condition_flags, null_registers)
+        if operands[1].type == ARM_OP_REG:
+            if (operands[0].value.reg) in null_registers:
+                condition_flags = self.initialise_condition_flags()
+                return (condition_flags, null_registers)
+        
+        # Test conditional.
         overflow = None
         if opcode_id == ARM_INS_CMN:
             (result, carry, overflow) = \
@@ -1798,15 +1994,16 @@ class RegisterEvaluator:
             carry,
             overflow
         )
-        return condition_flags
+        return (condition_flags, null_registers)
         
     def process_eor(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -1814,19 +2011,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             orr_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, orr_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             orr_operand, 
             'int',
             condition_flags['c']
         )
-        if orr_value == None: return (next_reg_values, condition_flags)
+        if orr_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, orr_value])
         result = np.bitwise_xor(
@@ -1847,24 +2054,51 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
+    def process_null_registers_ldr(self, null_registers, dst_operand, null_value,
+                                        address):
+        if dst_operand in null_registers:
+            del null_registers[dst_operand]
+        if null_value == True:
+            address_type = self.get_address_type(address)
+            if ((address_type != consts.ADDRESS_FIRMWARE) 
+                    and (address_type != consts.ADDRESS_RAM)):
+                logging.debug(
+                    'LDR source is unavailable. Register '
+                    + str(dst_operand)
+                    + ' marked as null.'
+                )
+                null_registers[dst_operand] = {}
+        return null_registers
+                
     def process_ldm(self, ins_address, instruction, current_reg_values, 
-                        memory_map, trace_obj, current_path, condition_flags):
+                        memory_map, trace_obj, current_path, condition_flags,
+                        null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         src_register = operands[0]
         (address, _) = self.get_src_reg_value(next_reg_values, src_register, 'int')
-        if address == None: return (next_reg_values, memory_map)
+        if address == None: 
+            return (next_reg_values, memory_map, null_registers)
         
         for operand in operands[1:]:
             dst_operand = self.get_dst_operand(operand)
-            if dst_operand == None: return (next_reg_values, memory_map)
-            (reg_value, _) = self.get_value_from_memory(
+            if dst_operand == None: 
+                return (next_reg_values, memory_map, null_registers)
+            (reg_value, null_value) = self.get_value_from_memory(
                 memory_map,
                 address
             )
+            
+            null_registers = self.process_null_registers_ldr(
+                null_registers,
+                dst_operand,
+                null_value,
+                address
+            )
+        
             if reg_value != None:
                 if reg_value.strip() == '': reg_value = None
             next_reg_values = self.store_register_bytes(
@@ -1898,12 +2132,13 @@ class RegisterEvaluator:
                         copy.deepcopy(condition_flags),
                         copy.deepcopy(trace_obj),
                         new_path,
+                        copy.deepcopy(null_registers),
                         self.global_counter
                     ])
                     self.global_counter+=1
-                    return(None, None)
+                    return(None, None, None)
                 else:
-                    return (next_reg_values, memory_map)
+                    return (next_reg_values, memory_map, null_registers)
                 
         # Update base register if needed.
         if instruction.writeback:
@@ -1912,16 +2147,18 @@ class RegisterEvaluator:
                 src_register.value.reg,
                 address
             )
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
         
     def process_ldr(self, ins_address, instruction, current_reg_values, 
-                        memory_map, trace_obj, current_path, condition_flags):
+                        memory_map, trace_obj, current_path, condition_flags,
+                        null_registers):
         next_reg_values = current_reg_values
         opcode_id = instruction.id
         operands = instruction.operands
 
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, memory_map)
+        if dst_operand == None: 
+            return (next_reg_values, memory_map, null_registers)
         
         post_index_reg = None
         if len(operands) == 3:
@@ -1937,7 +2174,7 @@ class RegisterEvaluator:
         
         if src_memory_address == None:
             logging.error('Null src address: ' + hex(ins_address))
-            return (next_reg_values, memory_map)
+            return (next_reg_values, memory_map, null_registers)
 
         # If dst_operand is PC, then it causes branch.
         if dst_operand == ARM_REG_PC:
@@ -1964,12 +2201,13 @@ class RegisterEvaluator:
                     copy.deepcopy(condition_flags),
                     copy.deepcopy(trace_obj),
                     new_path,
+                    copy.deepcopy(null_registers),
                     self.global_counter
                 ])
                 self.global_counter+=1
-                return(None, None)
+                return(None, None, null_registers)
             else:
-                return (next_reg_values, memory_map)
+                return (next_reg_values, memory_map, null_registers)
             
         logging.debug(
             'LDR address: ' + hex(src_memory_address)
@@ -1990,65 +2228,19 @@ class RegisterEvaluator:
             unprocessed=True
         )
 
-        # Hacky method to increase the odds of both branches 
-        #  being taken if an LDR value is used for comparison, 
+        # Hacky method to ensure both branches are
+        #  taken if an LDR value is used for comparison, 
         #  and the value does not actually exist.
         # We only do this if the address is outside the memory map
-        #  range. If the address is within the memory map range,
+        #  range. If the address is within the memory map or firmware range,
         #  we just use all 0's only.
-        if null_value == True:
-            address_type = self.get_address_type(src_memory_address, memory_map)
-            if ((address_type != consts.ADDRESS_RAM) 
-                    and (address_type != consts.ADDRESS_STACK)
-                    and (address_type != consts.ADDRESS_FIRMWARE)):
-                next_address = self.get_next_address(
-                    self.all_addresses,
-                    ins_address
-                )
-                # One value is all 0's.
-                fake_value0 = ''.zfill(num_bytes*2)
-                src_value = fake_value0.zfill(8)
-                logging.debug('Fake value being loaded: ' + str(src_value))
-                next_reg_values0 = self.store_register_bytes(
-                    next_reg_values,
-                    dst_operand,
-                    src_value
-                )
-                self.add_to_queue([
-                    self.trace_register_values,
-                    next_address,
-                    copy.deepcopy(next_reg_values0),
-                    copy.deepcopy(memory_map),
-                    copy.deepcopy(condition_flags),
-                    copy.deepcopy(trace_obj),
-                    current_path,
-                    self.global_counter
-                ])
-                self.global_counter+=1
-                # One value is all f's.
-                fake_value1 = fake_value0.replace('0', 'f')
-                src_value = fake_value1.zfill(8)
-                logging.debug('Fake value being loaded: ' + str(src_value))
-                next_reg_values1 = self.store_register_bytes(
-                    next_reg_values,
-                    dst_operand,
-                    src_value
-                )
-                self.add_to_queue([
-                    self.trace_register_values,
-                    next_address,
-                    copy.deepcopy(next_reg_values1),
-                    copy.deepcopy(memory_map),
-                    copy.deepcopy(condition_flags),
-                    copy.deepcopy(trace_obj),
-                    current_path,
-                    self.global_counter
-                ])
-                self.global_counter+=1
-                # Don't return anything, because we don't want 
-                #  the existing trace to continue.
-                return(None, None)
-            
+        null_registers = self.process_null_registers_ldr(
+            null_registers,
+            dst_operand,
+            null_value,
+            src_memory_address
+        )
+         
         # Handle cases where None is returned (this will only happen 
         #  if dtype is not hex.
         if src_value != None:
@@ -2063,7 +2255,7 @@ class RegisterEvaluator:
                 dst_operand,
                 src_value
             )
-            return (next_reg_values, memory_map)
+            return (next_reg_values, memory_map, null_registers)
                     
         # Get the required bytes.
         src_value = src_value.zfill(8)
@@ -2084,18 +2276,21 @@ class RegisterEvaluator:
             dst_operand,
             src_value
         )
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
     
     def process_ldrd(self, ins_address, instruction, current_reg_values, 
-                        memory_map, trace_obj, current_path, condition_flags):
+                        memory_map, trace_obj, current_path, condition_flags,
+                        null_registers):
         next_reg_values = current_reg_values
         opcode_id = instruction.id
         operands = instruction.operands
 
         dst_operand1 = self.get_dst_operand(operands[0])
-        if dst_operand1 == None: return (next_reg_values, memory_map)
+        if dst_operand1 == None: 
+            return (next_reg_values, memory_map, null_registers)
         dst_operand2 = self.get_dst_operand(operands[1])
-        if dst_operand2 == None: return (next_reg_values, memory_map)
+        if dst_operand2 == None: 
+            return (next_reg_values, memory_map, null_registers)
         
         post_index_reg = None
         if len(operands) == 4:
@@ -2111,13 +2306,13 @@ class RegisterEvaluator:
         
         if src_memory_address == None:
             logging.error('Null src address: ' + hex(ins_address))
-            return (next_reg_values, memory_map)
+            return (next_reg_values, memory_map, null_registers)
             
         #Operand1.
         logging.debug(
             'LDR address: ' + hex(src_memory_address)
         )        
-        (src_value1, _) = self.get_value_from_memory(
+        (src_value1, null_value) = self.get_value_from_memory(
             memory_map,
             src_memory_address,
             unprocessed=True,
@@ -2133,6 +2328,14 @@ class RegisterEvaluator:
         else:
             # Get the required bytes.
             src_value1 = src_value1.strip().zfill(8)
+            
+        null_registers = self.process_null_registers_ldr(
+            null_registers,
+            dst_operand1,
+            null_value,
+            src_memory_address
+        )
+            
         logging.trace('Value to load: ' + str(src_value1))
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -2160,24 +2363,41 @@ class RegisterEvaluator:
         else:
             # Get the required bytes.
             src_value2 = src_value2.strip().zfill(8)
+        
+        null_registers = self.process_null_registers_ldr(
+            null_registers,
+            dst_operand2,
+            null_value,
+            src_memory_address+4
+        )
+        
         logging.trace('Value to load: ' + str(src_value2))
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand2,
             src_value2
         )
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
         
     def process_lsl(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, carry) = self.get_src_reg_value(next_reg_values, operands[1], 'int')
-        if src_value == None: return (next_reg_values, condition_flags)
+        if src_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         # Process shift.
         if len(operands) == 2:
             result = src_value
@@ -2195,22 +2415,31 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_lsr(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             operands[1], 
             'int'
         )
-        if src_value == None: return (next_reg_values, condition_flags)
+        if src_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         # Process shift.
         if len(operands) == 2:
@@ -2230,10 +2459,10 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_mov(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         if len(operands) != 2:
@@ -2241,11 +2470,20 @@ class RegisterEvaluator:
             sys.exit(0)
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (result, carry) = self.get_src_reg_value(next_reg_values, operands[1])
         if operands[1].type == ARM_OP_REG: carry = None
-        if result == None: return (next_reg_values, condition_flags)
+        if result == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -2258,15 +2496,16 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
     
     def process_mul(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             operand1 = operands[0]
@@ -2274,10 +2513,20 @@ class RegisterEvaluator:
         else:
             operand1 = operands[1]
             operand2 = operands[2]
+           
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operand1.value.reg, operand2.value.reg],
+            [dst_operand]
+        )
+        
         (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
-        if value1 == None: return (next_reg_values, condition_flags)
+        if value1 == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
-        if value2 == None: return (next_reg_values, condition_flags)
+        if value2 == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         mul_value = value1 * value2
         mul_value = '{0:08x}'.format(mul_value)
@@ -2294,10 +2543,10 @@ class RegisterEvaluator:
                 condition_flags,
                 result
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
     
     def process_mvn(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         if len(operands) != 2:
@@ -2305,7 +2554,15 @@ class RegisterEvaluator:
             sys.exit(0)
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2313,7 +2570,8 @@ class RegisterEvaluator:
             'int',
             condition_flags['c']
         )
-        if src_value == None: return (next_reg_values, condition_flags)
+        if src_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([src_value])
         result = np.bitwise_not(
@@ -2333,15 +2591,16 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_orn(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -2349,19 +2608,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             orr_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, orr_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             orr_operand, 
             'int',
             condition_flags['c']
         )
-        if orr_value == None: return (next_reg_values, condition_flags)
+        if orr_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, orr_value])
         orr_value = np.bitwise_not(
@@ -2387,15 +2656,16 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_orr(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -2403,19 +2673,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             orr_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, orr_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             orr_operand, 
             'int',
             condition_flags['c']
         )
-        if orr_value == None: return (next_reg_values, condition_flags)
+        if orr_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, orr_value])
         result = np.bitwise_or(
@@ -2436,10 +2716,11 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_pop(self, current_reg_values, trace_obj, ins_address,
-                        instruction, memory_map, current_path, condition_flags):
+                        instruction, memory_map, current_path, 
+                        condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
 
@@ -2483,14 +2764,15 @@ class RegisterEvaluator:
                 copy.deepcopy(condition_flags),
                 copy.deepcopy(trace_obj),
                 current_path,
+                copy.deepcopy(null_registers),
                 self.global_counter
             ])
             self.global_counter+=1
-            return (None, memory_map)
-        return (next_reg_values, memory_map)
+            return (None, memory_map, null_registers)
+        return (next_reg_values, memory_map, null_registers)
     
     def process_push(self, ins_address, instruction, current_reg_values, 
-                        memory_map, condition_flags):
+                        memory_map, condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
@@ -2517,18 +2799,27 @@ class RegisterEvaluator:
         # Sort the stack.
         memory_map = {key:memory_map[key] for key in sorted(memory_map.keys())}
 
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
         
     def process_rev(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, _) = self.get_src_reg_value(next_reg_values, operands[1])
-        if src_value == None: return next_reg_values
+        if src_value == None: 
+            return (next_reg_values, null_registers)
         
         # reversed_bits.
         if len(src_value) != 8:
@@ -2546,22 +2837,31 @@ class RegisterEvaluator:
             dst_operand,
             reversed_bytes
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
         
     def process_ror(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             operands[1], 
             'int'
         )
-        if src_value == None: return (next_reg_values, condition_flags)
+        if src_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         # Process shift.
         if len(operands) == 2:
@@ -2580,22 +2880,31 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_rrx(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
             
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
             operands[1], 
             'int'
         )
-        if src_value == None: return (next_reg_values, condition_flags)
+        if src_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         # Process shift.
         (result, carry) = self.rotate_right_with_extend(
@@ -2613,15 +2922,16 @@ class RegisterEvaluator:
                 result,
                 carry
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_rsb(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -2629,19 +2939,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             add_operand = operands[2]
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, add_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
             add_operand, 
             'int',
             condition_flags['c']
         )
-        if add_value == None: return (next_reg_values, condition_flags)
+        if add_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
 
         (result, carry, overflow) = \
             self.add_with_carry(add_value, start_value, 1, sub=True)
@@ -2658,15 +2978,16 @@ class RegisterEvaluator:
                 carry,
                 overflow
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_sbc(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -2674,19 +2995,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             add_operand = operands[2]
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, add_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
             add_operand, 
             'int',
             condition_flags['c']
         )
-        if add_value == None: return (next_reg_values, condition_flags)
+        if add_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
 
         carry_in = condition_flags['c']
         if carry_in == None: carry_in = 0
@@ -2705,16 +3036,17 @@ class RegisterEvaluator:
                 carry,
                 overflow
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
         
     def process_stm(self, ins_address, instruction, current_reg_values, 
-                        memory_map, condition_flags):
+                        memory_map, condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
 
         dst_register = operands[0]
         (address, _) = self.get_src_reg_value(next_reg_values, dst_register, 'int')
-        if address == None: return (next_reg_values, memory_map)
+        if address == None: 
+            return (next_reg_values, memory_map, null_registers)
         
         for operand in operands[1:]:
             (src_value, _) = self.get_src_reg_value(next_reg_values, operand)
@@ -2732,16 +3064,17 @@ class RegisterEvaluator:
                 dst_register.value.reg,
                 address
             )
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
         
     def process_str(self, ins_address, instruction, current_reg_values, 
-                        memory_map, condition_flags):
+                        memory_map, condition_flags, null_registers):
         next_reg_values = current_reg_values
         opcode_id = instruction.id
         operands = instruction.operands
 
         (src_value, _) = self.get_src_reg_value(next_reg_values, operands[0], 'hex')
-        if src_value == None: return (next_reg_values, memory_map)
+        if src_value == None: 
+            return (next_reg_values, memory_map, null_registers)
         
         num_bytes = 4
         if opcode_id in [ARM_INS_STRB, ARM_INS_STREXB]:
@@ -2764,7 +3097,7 @@ class RegisterEvaluator:
                 post_index_reg
             )
         if dst_memory_address == None:
-            return (next_reg_values, memory_map)
+            return (next_reg_values, memory_map, null_registers)
             
         memory_map = self.store_value_to_memory(
                 src_value,
@@ -2783,10 +3116,10 @@ class RegisterEvaluator:
                 new_reg_value
             )
             
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
         
     def process_strd(self, ins_address, instruction, current_reg_values, 
-                            memory_map, condition_flags):
+                            memory_map, condition_flags, null_registers):
         next_reg_values = current_reg_values
         opcode_id = instruction.id
         operands = instruction.operands
@@ -2794,7 +3127,7 @@ class RegisterEvaluator:
         (src_value1, _) = self.get_src_reg_value(next_reg_values, operands[0], 'hex')
         (src_value2, _) = self.get_src_reg_value(next_reg_values, operands[1], 'hex')
         if ((src_value1 == None) and (src_value2 == None)):
-            return (next_reg_values, memory_map)
+            return (next_reg_values, memory_map, null_registers)
             
         logging.trace(
             'Values to store: ' 
@@ -2815,7 +3148,7 @@ class RegisterEvaluator:
                 post_index_reg
             )
         if dst_memory_address == None:
-            return (next_reg_values, memory_map)
+            return (next_reg_values, memory_map, null_registers)
             
         # Store first value.
         memory_map = self.store_value_to_memory(
@@ -2832,15 +3165,16 @@ class RegisterEvaluator:
                 4
             )
             
-        return (next_reg_values, memory_map)
+        return (next_reg_values, memory_map, null_registers)
         
     def process_sub(self, ins_address, instruction, current_reg_values, 
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return (next_reg_values, condition_flags)
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         if len(operands) == 2:
             start_operand = operands[0]
@@ -2848,19 +3182,29 @@ class RegisterEvaluator:
         else:
             start_operand = operands[1]
             add_operand = operands[2]
+            
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [start_operand.value.reg, add_operand.value.reg],
+            [dst_operand]
+        )
+        
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
             start_operand, 
             'int'
         )
-        if start_value == None: return (next_reg_values, condition_flags)
+        if start_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
             add_operand, 
             'int',
             condition_flags['c']
         )
-        if add_value == None: return (next_reg_values, condition_flags)
+        if add_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
         
         (result, carry, overflow) = \
             self.add_with_carry(start_value, add_value, 1, sub=True)
@@ -2877,24 +3221,34 @@ class RegisterEvaluator:
                 carry,
                 overflow
             )
-        return (next_reg_values, condition_flags)
+        return (next_reg_values, condition_flags, null_registers)
 
     def process_sxt(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         opcode_id = instruction.id
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
         
         src_operand = operands[1]
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [src_operand.value.reg],
+            [dst_operand]
+        )
+        
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
             src_operand, 
             'hex'
         )
-        if src_value == None: return next_reg_values
+        if src_value == None: 
+            return (next_reg_values, null_registers)
         
         # This is to make sure we get the correct bytes.
         src_value = src_value.zfill(8)
@@ -2912,24 +3266,34 @@ class RegisterEvaluator:
             dst_operand,
             extended_value
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
         
     def process_uxt(self, ins_address, instruction, current_reg_values,
-                            condition_flags):
+                            condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         opcode_id = instruction.id
         
         dst_operand = self.get_dst_operand(operands[0])
-        if dst_operand == None: return next_reg_values
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
         
         src_operand = operands[1]
+        
+        # Update null registers.
+        null_registers = self.update_null_registers(
+            null_registers,
+            [src_operand.value.reg],
+            [dst_operand]
+        )
+        
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
             src_operand, 
             'hex'
         )
-        if src_value == None: return next_reg_values
+        if src_value == None: 
+            return (next_reg_values, null_registers)
         
         # This is to make sure we get the correct bytes.
         src_value = src_value.zfill(8)
@@ -2948,7 +3312,7 @@ class RegisterEvaluator:
             extended_value,
             True
         )
-        return next_reg_values
+        return (next_reg_values, null_registers)
     
     # =======================================================================
     
@@ -3151,7 +3515,7 @@ class RegisterEvaluator:
     # =======================================================================  
     #---------------------------- Memory Operations -------------------------
     
-    def get_address_type(self, address, memory_map):
+    def get_address_type(self, address, memory_map=None):
         # RAM.
         start_ram_address = common_objs.ram_base
         end_ram_address = start_ram_address + common_objs.ram_length
@@ -3164,6 +3528,9 @@ class RegisterEvaluator:
         if ((address >= start_fw_address) 
                 and (address <= end_fw_address)):
             return consts.ADDRESS_FIRMWARE
+            
+        if memory_map == None:
+            return None
         # Stack. Technically, this is a stack/RAM combination.
         stack_addresses = list(memory_map.keys())
         stack_addresses.sort()
