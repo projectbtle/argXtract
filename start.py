@@ -256,6 +256,7 @@ class SVCXtract:
             process_send_queue.put(fw_file)
             
         completed_apk_count = 0
+        outfile = open('status.csv', 'w')
         
         while True:
             #Get and process information sent by worker process.
@@ -263,8 +264,18 @@ class SVCXtract:
             process_receive_queue.task_done()
             
             # Log, etc.
-            filename = result.split(',')[0]
+            split_result = result.split(',')
+            filename = split_result[0]
             print('Finished analysing ' + filename)
+            if len(split_result) > 1:
+                status = split_result[1]
+            else:
+                status = 'Completed'
+            if len(split_result) > 2:
+                error = split_result[2]
+            else:
+                error = 'None'
+            outfile.write(filename + ',' + status + ',' + error + '\n')
             
             #Check if any processes have become zombies.
             if len(active_children()) < self.processes:

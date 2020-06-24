@@ -3,3 +3,4 @@
 svcxtract/resources/vendor/*
 !svcxtract/resources/vendor/.gitignore
 output/*.json
+status.csv
