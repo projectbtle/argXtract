@@ -219,6 +219,7 @@ class SVCXtract:
                 
     def execute_multiple_processes(self):
         # We don't want long messages in parallel threads.
+        self.loglevel = logging.CRITICAL
         logging.getLogger().setLevel(logging.CRITICAL)
         
         length_fw_list = int(len(self.core_file_list)/self.processes)
