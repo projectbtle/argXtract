@@ -6,9 +6,10 @@ import logging
 import argparse
 from svcxtract.common import objects as common_objs
 from svcxtract.core.analyser import FirmwareAnalyser
+from multiprocessing import Process, JoinableQueue, active_children
 
 
-class ExtractaSVC:
+class SVCXtract:
     def __init__(self):
         self.vendor = None
         self.processes = 1
@@ -20,7 +21,7 @@ class ExtractaSVC:
         
     def set_args(self):
         self.argparser = argparse.ArgumentParser(
-            description = 'ExtractaSVC enables testing Nordic firmware '
+            description = 'SVCXtract enables testing Nordic firmware '
                           + 'files to enumerate services and characteristics, '
                           + ' and identify characteristic protection levels.',
             epilog = 'Note that this tool has only been '
@@ -182,7 +183,7 @@ class ExtractaSVC:
         # Banner.
         print(
             '\n==================================\n'
-            + 'ExtractaSVC\n'
+            + 'SVCXtract\n'
             + '==================================\n'
         )
         
@@ -191,7 +192,13 @@ class ExtractaSVC:
             + ' firmware files to analyse.'
         )
 
-        firmware_analyser = FirmwareAnalyser(self.vendor)
+        if self.processes == 1:
+            self.execute_single_process()
+        else:
+            self.execute_multiple_processes()
+            
+    def execute_single_process(self):
+        firmware_analyser = FirmwareAnalyser(self.vendor, self.loglevel)
         for fw_file in self.core_file_list:
             #try:
             # Get hash of file bytes.
@@ -209,7 +216,137 @@ class ExtractaSVC:
             # Write to file.
             with open(outputfilename, 'w') as f: 
                 json.dump(output, f, indent=4)
+                
+    def execute_multiple_processes(self):
+        # We don't want long messages in parallel threads.
+        logging.getLogger().setLevel(logging.CRITICAL)
+        
+        length_fw_list = int(len(self.core_file_list)/self.processes)
+        print(
+            "Total number of FW files: " 
+            + str(len(self.core_file_list)) 
+            + "\nNumber of files per thread:"
+            + str(length_fw_list)
+        )
+    
+        #Create queues for sending jobs to worker threads and receiving results from them.
+        process_send_queue = JoinableQueue()
+        process_receive_queue = JoinableQueue() 
+        
+        num_processes = 0
+        process_list = []
+        
+        #Create worker processes.
+        for i in range(0, self.processes):
+            workerx = SVCXtractWorker(self.vendor, self.loglevel)
+            worker = Process(
+                target=workerx.main,
+                args=(
+                    process_send_queue,
+                    process_receive_queue,
+                    num_processes
+                )
+            )
+            worker.start()
+            process_list.append(worker)
+            num_processes+=1
+            
+        #Send jobs to worker processes.
+        for fw_file in self.core_file_list:
+            process_send_queue.put(fw_file)
+            
+        completed_apk_count = 0
+        
+        while True:
+            #Get and process information sent by worker process.
+            result = process_receive_queue.get()
+            process_receive_queue.task_done()
+            
+            # Log, etc.
+            filename = result.split(',')[0]
+            print('Finished analysing ' + filename)
+            
+            #Check if any processes have become zombies.
+            if len(active_children()) < self.processes:
+                for p in process_list:
+                    if not p.is_alive():
+                        process_list.remove(p)
+                        # Create replacement worker.
+                        workerx = SVCXtractWorker(self.vendor, self.loglevel)
+                        worker = Process(
+                            target=workerx.main, 
+                            args=(
+                                process_send_queue,
+                                process_receive_queue,
+                                num_processes
+                            )
+                        )
+                        worker.start()
+                        process_list.append(worker)
+                        num_processes+=1
+
+            #Check if all APKs have been analysed.
+            completed_apk_count+=1
+            if completed_apk_count == len(self.core_file_list):
+                break
+                
+        print("All done")
+        # Tell child processes to stop
+        for i in range(self.processes):
+            process_send_queue.put('STOP')
+            
+
+class SVCXtractWorker:
+    def __init__(self, vendor, loglevel):
+        self.vendor = vendor
+        self.loglevel = loglevel
+        logging.getLogger().setLevel(loglevel)
+        
+    def main(self, in_queue, out_queue, process_id):
+        firmware_analyser = FirmwareAnalyser(self.vendor, self.loglevel)
+        
+        # Get job from queue.
+        for queue_input in iter(in_queue.get, 'STOP'):
+            filename = str(queue_input).strip()
+            print("\n\n[MAIN] Thread {1} - File {0}".format(
+                filename, str(process_id)))
+                
+            # Get hash of file bytes.
+            filebytes = open(filename, 'rb').read()
+            m = hashlib.sha256(filebytes)
+            # Don't waste resources by keeping file bytes in memory.
+            filebytes = None
+            # Get digest value.
+            digest = m.hexdigest()
+            outputfilename = './output/' + digest + '.json'
+            
+            # Get analysis output.
+            try:
+                output = firmware_analyser.analyse_firmware(filename)
+                # If no output, but no error.
+                if output == None:
+                    out_queue.put(filename 
+                                      + "," 
+                                      + "None"
+                                  )
+                    in_queue.task_done()
+                    continue
+                # If an output was obtained.
+                # Write to file.
+                with open(outputfilename, 'w') as f: 
+                    json.dump(output, f, indent=4)
+                out_queue.put(filename)
+                in_queue.task_done()
+                continue
+            except Exception as e:
+                out_queue.put(filename 
+                                  + "," 
+                                  + "Error,"
+                                  + str(e)
+                              )
+                in_queue.task_done()
+            
 
 if __name__ == '__main__':
-    analysable_instance = ExtractaSVC()
+    analysable_instance = SVCXtract()
     analysable_instance.start_analysis()

@@ -217,7 +217,6 @@ class RegisterEvaluator:
             logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
-            print(hex(ins_address))
             
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
@@ -4039,7 +4038,7 @@ class RegisterEvaluator:
             elif len(str) == 2:
                 bit_length = 8
         if bit_length == None: 
-            print(type(value))
+            logging.error(type(value))
             logging.error('WHAT')
         return bit_length
         

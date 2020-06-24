@@ -16,7 +16,9 @@ from svcxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
-    def __init__(self, vendor=None):
+    def __init__(self, vendor=None, loglevel=logging.INFO):
+        logging.getLogger().setLevel(loglevel)
+        
         self.set_paths()
         
         # First things first, run vendor tests.
