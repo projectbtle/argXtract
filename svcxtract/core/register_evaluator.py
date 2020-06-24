@@ -217,7 +217,7 @@ class RegisterEvaluator:
             logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
-            
+
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
@@ -3362,10 +3362,14 @@ class RegisterEvaluator:
                             carry_in=None):
         if src_operand.type == ARM_OP_IMM:
             src_value = src_operand.value.imm
-            if src_value > 2147483647:
+            if src_value < 0:
+                src_value = '{:08x}'.format(src_value & (2**32-1))
+            elif src_value > 2147483647:
                 src_value = np.uint32(src_value)
+                src_value = '{:08x}'.format(src_value & (2**32-1))
             else:
                 src_value = np.int32(src_value)
+                src_value = '{:08x}'.format(src_value & (2**32-1))
         elif src_operand.type == ARM_OP_REG:
             src_register = src_operand.value.reg
             if current_reg_values[src_register] == None:
@@ -4038,7 +4042,7 @@ class RegisterEvaluator:
             elif len(str) == 2:
                 bit_length = 8
         if bit_length == None: 
-            logging.error(type(value))
+            print(type(value))
             logging.error('WHAT')
         return bit_length
         
@@ -4052,7 +4056,7 @@ class RegisterEvaluator:
         return binary          
         
     def convert_bits_to_type(self, bitstring, dtype):
-        if dtype is str:
+        if ((dtype is str) or (dtype == 'hex')):
             hex_value = '%0*x' % ((len(bitstring) + 3) // 4, int(bitstring, 2))
             new_value = hex_value
         else:
@@ -4104,7 +4108,6 @@ class RegisterEvaluator:
         if shift == 0:
             return (value, 0)
         bit_length = self.get_bit_length(value)
-        
         bits = self.get_binary_representation(value, bit_length)
         extended_bits = bits
         for i in range(shift):
@@ -4112,7 +4115,7 @@ class RegisterEvaluator:
             carry_out = extended_bits[0]
             shifted_value = extended_bits[(-1*bit_length):]
             extended_bits = shifted_value
-        new_value = self.convert_bits_to_type(shifted_value, type(value))
+        new_value = self.convert_bits_to_type(extended_bits, 'hex')
         carry_out = int(carry_out)
         return (new_value, carry_out)
         
@@ -4134,7 +4137,7 @@ class RegisterEvaluator:
             carry_out = extended_bits[-1]
             shifted_value = extended_bits[0:bit_length]
             extended_bits = shifted_value
-        new_value = self.convert_bits_to_type(shifted_value, type(value))
+        new_value = self.convert_bits_to_type(shifted_value, 'hex')
         carry_out = int(carry_out)
         return (new_value, carry_out)
     
@@ -4157,7 +4160,7 @@ class RegisterEvaluator:
             carry_out = extended_bits[-1]
             shifted_value = extended_bits[0:bit_length]
             extended_bits = shifted_value
-        new_value = self.convert_bits_to_type(shifted_value, type(value))
+        new_value = self.convert_bits_to_type(shifted_value, 'hex')
         carry_out = int(carry_out)
         return (new_value, carry_out)
         
@@ -4178,7 +4181,7 @@ class RegisterEvaluator:
             rightmost_bit = bits[-1]
             shifted_bits = rightmost_bit + bits
             bits = shifted_bits[0:bit_length]
-        new_value = self.convert_bits_to_type(bits, type(value))
+        new_value = self.convert_bits_to_type(bits, 'hex')
         carry_out = int(rightmost_bit)
         return (new_value, carry_out)
         
@@ -4198,7 +4201,7 @@ class RegisterEvaluator:
         carry_out = int(bits[-1])
         shifted_bits = carry_in + bits
         bits = shifted_bits[0:bit_length]
-        new_value = self.convert_bits_to_type(bits, type(value))
+        new_value = self.convert_bits_to_type(bits, 'hex')
         return (new_value, carry_out)
         
     def add_with_carry(self, x, y, carry_in=0, num_bits = 32, sub=False):
