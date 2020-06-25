@@ -406,7 +406,7 @@ class FunctionEvaluator:
             return True
 
         return False
-    
+        
     def check_opcodes_for_fb_start(self, function_block_start_addresses):
         for ins_address in common_objs.disassembled_firmware:
             if ins_address in common_objs.errored_instructions:
@@ -425,18 +425,44 @@ class FunctionEvaluator:
                 reg = ops[0].value.reg
                 if reg == ARM_REG_SP:
                     is_candidate = True
-            if is_candidate != True:
+            if is_candidate != True:                
                 continue
+                
             if ins_address in function_block_start_addresses:
+                continue
+                
+            fb_address = ins_address
+            
+            address = ins_address
+            for i in range(6):
+                prev_address = self.get_previous_address(
+                    self.all_addresses,
+                    address
+                )
+                if common_objs.disassembled_firmware[prev_address]['is_data'] == True:
+                    if address == ins_address: break
+                    fb_address = address
+                    logging.debug(
+                        'Favouring ' 
+                        + hex(fb_address) 
+                        + ' over '
+                        + hex(ins_address)
+                        + ' due to proximity of inline data.'
+                    )
+                    break
+                address = prev_address
+                
+            if fb_address in function_block_start_addresses:
                 continue
             
             preexists = self.check_preexisting_block(
                 function_block_start_addresses,
-                ins_address,
+                fb_address,
                 boundary=26
             )
             if preexists == False:
-                function_block_start_addresses.append(ins_address)
+                function_block_start_addresses.append(fb_address)
+            
         return function_block_start_addresses
         
     def check_preexisting_block(self, function_block_start_addresses,
@@ -506,20 +532,29 @@ class FunctionEvaluator:
             if src_block == dst_block:
                 continue
             if branch_target > ins_address:
-                fblock_to_delete = dst_block
+                start = src_block
+                end = dst_block
             else:
-                fblock_to_delete = src_block
+                start = dst_block
+                end = src_block
             
-            # Now we can mark the function block for deletion.
-            if fblock_to_delete not in fblocks_to_delete:
-                fblocks_to_delete.append(fblock_to_delete)
-            logging.debug(
-                'Marking function block starting at '
-                + hex(fblock_to_delete)
-                + ' pointed to by instruction '
-                + hex(ins_address)
-                + ' for deletion.'
-            )
+            list_fblocks_to_delete = []
+            list_fblocks_to_delete.append(start)
+            for fblock in function_block_start_addresses:
+                if ((fblock > start) and (fblock < end)):
+                    list_fblocks_to_delete.append(fblock)
+            
+            # Now we can mark the function block(s) for deletion.
+            for fblock_to_delete in list_fblocks_to_delete:
+                if fblock_to_delete not in fblocks_to_delete:
+                    fblocks_to_delete.append(fblock_to_delete)
+                    logging.debug(
+                        'Marking function block starting at '
+                        + hex(fblock_to_delete)
+                        + ' pointed to by instruction '
+                        + hex(ins_address)
+                        + ' for deletion.'
+                    )
                 
         # Remove the identified function blocks.
         for fblock_to_delete in fblocks_to_delete:
@@ -591,7 +626,7 @@ class FunctionEvaluator:
         functions = []
         for function_tuple in function_tuples:
             functions.append(function_tuple[0])
-        blacklisted_functions = []
+        caller_functions = []
         for idx, function in enumerate(functions):
             address = function
             ins_count = 0
@@ -605,11 +640,11 @@ class FunctionEvaluator:
                 if at_address['insn'].id == ARM_INS_B:
                     branch_target = (at_address['insn'].operands)[0].value.imm
                     if branch_target in functions:
-                        blacklisted_functions.append(function_tuples[idx])
+                        caller_functions.append(function_tuples[idx])
                         break
                 address = self.get_next_address(self.all_addresses, address)
                 ins_count += 1
-        for function in blacklisted_functions:
+        for function in caller_functions:
             function_tuples.remove(function)
         return function_tuples
                     
@@ -786,3 +821,30 @@ class FunctionEvaluator:
         else:
             next_address = None
         return next_address
+        
+    def get_previous_address(self, address_obj, address):
+        if address_obj == None: return None
+        if address == None: return None
+        
+        if address in address_obj:
+            index = address_obj.index(address)
+            if index == 0:
+                return None
+            prev_address = address_obj[index - 1]
+        else:
+            prev_address = self.get_previous_partial_address(
+                address_obj,
+                address
+            )
+        return prev_address
+    
+    def get_previous_partial_address(self, address_obj, address):
+        if address_obj == None: return None
+        if address == None: return None
+            
+        if address not in address_obj:
+            for i in range(1,4):
+                if (address-i) in address_obj:
+                    address = address-i
+                    break
+        return address
