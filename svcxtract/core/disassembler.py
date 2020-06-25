@@ -130,6 +130,40 @@ class FirmwareDisassembler:
                 common_objs.disassembled_firmware[ins_address]['is_data'] = True
                 continue
    
+            # Table branch indices.
+            if insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
+                index_register = insn.operands[0].value.mem.index
+                pc_address = ins_address + 4
+                address = ins_address
+                for i in range(5):
+                    address -= 2
+                    if common_objs.disassembled_firmware[address]['is_data'] == True:
+                        continue
+                    if common_objs.disassembled_firmware[address]['insn'] == None:
+                        continue
+                    prev_insn = common_objs.disassembled_firmware[address]['insn']
+                    if prev_insn.id != ARM_INS_CMP:
+                        continue
+                    if prev_insn.operands[0].value.reg != index_register:
+                        continue
+                    comp_value = prev_insn.operands[1].value.imm
+                    break
+                mul_factor = 1
+                if insn.id == ARM_INS_TBH:
+                    mul_factor = 2
+                table_branch_max = pc_address + (comp_value * mul_factor) + 2
+                while pc_address < table_branch_max:
+                    logging.debug(
+                        'Marking '
+                        + hex(pc_address)
+                        + ' as branch index table.'
+                    )
+                    common_objs.disassembled_firmware[pc_address]['is_data'] = True
+                    common_objs.disassembled_firmware[pc_address]['table_index'] = True
+                    common_objs.disassembled_firmware[pc_address]['insn'] = None
+                    pc_address += 2
+                continue
+            
             # If the instruction is not a valid LDR instruction, then don't bother.
             if self.check_valid_pc_ldr(insn) != True:
                 continue
@@ -159,8 +193,8 @@ class FirmwareDisassembler:
             logging.debug(
                 'Marking '
                 + hex(ldr_target)
-                + ' as data.'
-                
+                + ' as data called from '
+                + hex(ins_address)
             )
                     
             # Now that we know the target address contains data, 
