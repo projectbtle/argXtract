@@ -13,6 +13,8 @@ class SVCXtract:
     def __init__(self):
         self.vendor = None
         self.processes = 1
+        self.max_time = common_objs.max_time
+        self.max_call_depth = common_objs.max_call_depth
         self.core_file_list = []
         self.loglevel = logging.INFO
         logging.getLogger().setLevel(self.loglevel)
@@ -169,11 +171,11 @@ class SVCXtract:
             
         if args.time:
             if args.time > 0:
-                common_objs.max_time = int(args.time)
+                self.max_time = args.time
                 
         if args.max_call_depth:
             if args.max_call_depth > 0:
-                common_objs.max_call_depth = args.max_call_depth
+                self.max_call_depth = args.max_call_depth
                 
         if args.processes:
             if args.processes > 0:
@@ -198,7 +200,12 @@ class SVCXtract:
             self.execute_multiple_processes()
             
     def execute_single_process(self):
-        firmware_analyser = FirmwareAnalyser(self.vendor, self.loglevel)
+        firmware_analyser = FirmwareAnalyser(
+            self.vendor, 
+            self.max_time,
+            self.max_call_depth,
+            self.loglevel
+        )
         for fw_file in self.core_file_list:
             #try:
             # Get hash of file bytes.
@@ -239,7 +246,12 @@ class SVCXtract:
         
         #Create worker processes.
         for i in range(0, self.processes):
-            workerx = SVCXtractWorker(self.vendor, self.loglevel)
+            workerx = SVCXtractWorker(
+                self.vendor, 
+                self.max_time,
+                self.max_call_depth,
+                self.loglevel
+            )
             worker = Process(
                 target=workerx.main,
                 args=(
@@ -284,7 +296,12 @@ class SVCXtract:
                     if not p.is_alive():
                         process_list.remove(p)
                         # Create replacement worker.
-                        workerx = SVCXtractWorker(self.vendor, self.loglevel)
+                        workerx = SVCXtractWorker(
+                            self.vendor, 
+                            self.max_time,
+                            self.max_call_depth,
+                            self.loglevel
+                        )
                         worker = Process(
                             target=workerx.main, 
                             args=(
@@ -309,13 +326,20 @@ class SVCXtract:
             
 
 class SVCXtractWorker:
-    def __init__(self, vendor, loglevel):
+    def __init__(self, vendor, max_time, max_call_depth, loglevel):
         self.vendor = vendor
+        self.max_time = max_time
+        self.max_call_depth = max_call_depth
         self.loglevel = loglevel
         logging.getLogger().setLevel(loglevel)
         
     def main(self, in_queue, out_queue, process_id):
-        firmware_analyser = FirmwareAnalyser(self.vendor, self.loglevel)
+        firmware_analyser = FirmwareAnalyser(
+            self.vendor, 
+            self.max_time,
+            self.max_call_depth,
+            self.loglevel
+        )
         
         # Get job from queue.
         for queue_input in iter(in_queue.get, 'STOP'):

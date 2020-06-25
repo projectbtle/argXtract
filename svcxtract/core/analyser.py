@@ -16,9 +16,10 @@ from svcxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
-    def __init__(self, vendor=None, loglevel=logging.INFO):
+    def __init__(self, vendor, max_time, max_call_depth, loglevel):
+        common_objs.max_time = max_time
+        common_objs.max_call_depth = max_call_depth
         logging.getLogger().setLevel(loglevel)
-        
         self.set_paths()
         
         # First things first, run vendor tests.
