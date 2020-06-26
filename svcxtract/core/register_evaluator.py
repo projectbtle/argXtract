@@ -86,8 +86,7 @@ class RegisterEvaluator:
                 condition_flags,
                 trace_obj[start_point],
                 current_path,
-                null_registers,
-                self.global_counter
+                null_registers
             ])
         
         self.queue_handler()
@@ -107,9 +106,6 @@ class RegisterEvaluator:
         code_start_point = common_objs.code_start_address
         # TODO: We just ignore it, for now, but we need to see why it happens.
         if start_point < (code_start_point): 
-            logging.error(
-                'Branch to AVT!'
-            )
             return None
         
         # Get the address of the last instruction in function block,
@@ -214,7 +210,7 @@ class RegisterEvaluator:
             
             # Debug and trace messages.
             logging.debug('------------------------------------------')
-            logging.debug('memory: ' + self.print_memory(memory_map))
+            #logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
 
@@ -315,6 +311,7 @@ class RegisterEvaluator:
             branch_target = operands[1].value.imm
         
         # If branch_target is black-listed, don't proceed.
+        # DO NOT return False.
         if branch_target in common_objs.blacklisted_functions:
             return True
             
@@ -391,7 +388,6 @@ class RegisterEvaluator:
                 'Link return address is '
                 + '{0:08x}'.format(link_return_address)
             )
-        
         # If BX, we may need to get previous level of trace obj.
         if opcode_id == ARM_INS_BX:
             trace_obj = self.get_return_trace_obj(
@@ -401,20 +397,15 @@ class RegisterEvaluator:
         logging.debug('Counter: ' + str(self.global_counter))
         
         # Branch.
-        self.add_to_queue([
-            self.trace_register_values,
+        self.check_and_add_to_trace_queue(
             branch_target,
-            copy.deepcopy(register_object),
-            copy.deepcopy(memory_map),
-            copy.deepcopy(condition_flags),
-            copy.deepcopy(trace_obj),
+            register_object,
+            memory_map,
+            condition_flags,
+            trace_obj,
             current_path,
-            copy.deepcopy(null_registers),
-            self.global_counter
-        ])
-        
-        # Increment counter to keep track of branches.
-        self.global_counter+=1
+            null_registers
+        )
         
         return should_execute_next_instruction
 
@@ -798,11 +789,7 @@ class RegisterEvaluator:
         # Get the indexing register, the value it is compared to, and the 
         #  address at which the comparison takes place.
         (comp_register, comp_value, comp_address) = \
-            self.get_table_branch_register_comparison_value(
-                next_reg_values,
-                ins_address,
-                condition_flags
-            )
+            self.get_table_branch_register_comparison_value(ins_address)
 
         # Get all possible branch addresses.
         table_branch_addresses = self.get_table_branch_addresses(
@@ -825,8 +812,17 @@ class RegisterEvaluator:
             comp_register,
             'int'
         )
-
-        branch_address = table_branch_addresses[actual_value]
+        if actual_value == None:
+            branch_address = skip_address
+        elif actual_value > comp_value:
+            # The only way we would have got to this point is if
+            #  a register value was null. Which would mean the alternative
+            #  path would also have been taken (i.e., the skip address).
+            #  So we can safely skip this.
+            return
+        else:
+            branch_address = table_branch_addresses[actual_value]
+            
         if branch_address not in common_objs.disassembled_firmware:
             logging.critical(
                 'Unable to index into table. '
@@ -853,18 +849,15 @@ class RegisterEvaluator:
         debug_msg += (' with counter: ' + str(self.global_counter))
         logging.debug(debug_msg)
         
-        self.add_to_queue([
-            self.trace_register_values,
+        self.check_and_add_to_trace_queue(
             branch_address,
-            copy.deepcopy(next_reg_values),
-            copy.deepcopy(memory_map),
-            copy.deepcopy(condition_flags),
-            copy.deepcopy(trace_obj),
+            next_reg_values,
+            memory_map,
+            condition_flags,
+            trace_obj,
             new_path,
-            copy.deepcopy(null_registers),
-            self.global_counter
-        ])
-        self.global_counter+=1     
+            null_registers
+        )   
             
     def get_table_branch_addresses(self, ins_address, opcode_id, num_values):
         table_branch_addresses = []
@@ -889,12 +882,10 @@ class RegisterEvaluator:
         
         return table_branch_addresses
     
-    def get_table_branch_register_comparison_value(self, register_object, 
-                ins_address, condition_flags):
+    def get_table_branch_register_comparison_value(self, ins_address):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         opcode_id = insn.id
         operands = insn.operands
-        next_reg_values = register_object
 
         index_register = operands[0].value.mem.index
         
@@ -907,16 +898,14 @@ class RegisterEvaluator:
             prev_insn = common_objs.disassembled_firmware[address]
             if prev_insn['is_data'] == True:
                 continue
+            if prev_insn['insn'] == None:
+                continue
             if prev_insn['insn'].id != ARM_INS_CMP:
                 continue
             if prev_insn['insn'].operands[0].value.reg != index_register:
                 continue
             comp_address = address
-            (comparison_value, _) = self.get_src_reg_value(
-                next_reg_values,
-                prev_insn['insn'].operands[1], 
-                'int'
-            )
+            comparison_value = prev_insn['insn'].operands[1].value.imm
             logging.debug(
                 'Register '
                 + str(index_register)
@@ -1095,18 +1084,15 @@ class RegisterEvaluator:
             start_branch = original_address
             
         # Branch from postconditional.
-        self.add_to_queue([
-            self.trace_register_values,
+        self.check_and_add_to_trace_queue(
             branching_address,
-            copy.deepcopy(next_reg_values),
-            copy.deepcopy(memory_map),
-            copy.deepcopy(condition_flags),
-            copy.deepcopy(trace_obj),
+            next_reg_values,
+            memory_map,
+            condition_flags,
+            trace_obj,
             current_path,
-            copy.deepcopy(null_registers),
-            self.global_counter
-        ])
-        self.global_counter += 1
+            null_registers
+        )
         
     # =======================================================================  
     # ----------------------- Instruction Processing ------------------------
@@ -1428,6 +1414,8 @@ class RegisterEvaluator:
                 ARM_REG_R0,
                 '00000000'
             )
+            # If we don't do this, R0 retains old taints.
+            if ARM_REG_R0 in null_registers: del null_registers[ARM_REG_R0]
         else:
             if ('dsb' not in instruction.mnemonic):
                 if instruction.mnemonic not in self.unhandled:
@@ -1436,6 +1424,7 @@ class RegisterEvaluator:
         return (register_object, memory_map, condition_flags, null_registers)
 
     def update_null_registers(self, null_registers, src_ops, dst_ops):
+        tainted = False
         for dst_op in dst_ops:
             if dst_op in src_ops:
                 continue
@@ -1448,6 +1437,7 @@ class RegisterEvaluator:
             if src_op == ARM_REG_INVALID:
                 continue
             if src_op in list(null_registers.keys()):
+                tainted = True
                 for dst_op in dst_ops:
                     logging.debug(
                         'Register '
@@ -1457,7 +1447,7 @@ class RegisterEvaluator:
                     )
                     null_registers[dst_op] = {}
                 break
-        return null_registers
+        return (null_registers, tainted)
     
     def process_adc(self, ins_address, instruction, current_reg_values,
                             condition_flags, null_registers):
@@ -1476,11 +1466,13 @@ class RegisterEvaluator:
             add_operand = operands[2]
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, add_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         # Get values.
         (start_value, _) = self.get_src_reg_value(
@@ -1513,7 +1505,7 @@ class RegisterEvaluator:
             result
         )
         
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -1539,12 +1531,14 @@ class RegisterEvaluator:
             add_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, add_operand.value.reg],
             [dst_operand]
         )
-        
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+            
         # Get values.
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1569,7 +1563,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -1588,11 +1582,13 @@ class RegisterEvaluator:
             return (next_reg_values, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         pc_value = self.get_mem_access_pc_value(ins_address)
         (add_value, _) = self.get_src_reg_value(
@@ -1632,11 +1628,13 @@ class RegisterEvaluator:
             and_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, and_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1667,7 +1665,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -1685,11 +1683,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1712,7 +1712,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -1771,11 +1771,13 @@ class RegisterEvaluator:
             return (next_reg_values, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [dst_operand, operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (original_value, _) = self.get_src_reg_value(
             next_reg_values,
@@ -1837,11 +1839,13 @@ class RegisterEvaluator:
             not_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, not_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1877,7 +1881,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -1897,11 +1901,13 @@ class RegisterEvaluator:
         src_operand = operands[1]
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [src_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1958,7 +1964,7 @@ class RegisterEvaluator:
             condition_flags = self.initialise_condition_flags()
             return (condition_flags, null_registers)
         if operands[1].type == ARM_OP_REG:
-            if (operands[0].value.reg) in null_registers:
+            if (operands[1].value.reg) in null_registers:
                 condition_flags = self.initialise_condition_flags()
                 return (condition_flags, null_registers)
         
@@ -2012,11 +2018,13 @@ class RegisterEvaluator:
             orr_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, orr_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2047,7 +2055,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2123,18 +2131,15 @@ class RegisterEvaluator:
                 )
                 
                 if should_branch == True:
-                    self.add_to_queue([
-                        self.trace_register_values,
+                    self.check_and_add_to_trace_queue(
                         pc_target,
-                        copy.deepcopy(next_reg_values),
-                        copy.deepcopy(memory_map),
-                        copy.deepcopy(condition_flags),
-                        copy.deepcopy(trace_obj),
+                        next_reg_values,
+                        memory_map,
+                        condition_flags,
+                        trace_obj,
                         new_path,
-                        copy.deepcopy(null_registers),
-                        self.global_counter
-                    ])
-                    self.global_counter+=1
+                        null_registers
+                    )
                     return(None, None, None)
                 else:
                     return (next_reg_values, memory_map, null_registers)
@@ -2192,18 +2197,15 @@ class RegisterEvaluator:
             )
             
             if should_branch == True:
-                self.add_to_queue([
-                    self.trace_register_values,
+                self.check_and_add_to_trace_queue(
                     pc_target,
-                    copy.deepcopy(next_reg_values),
-                    copy.deepcopy(memory_map),
-                    copy.deepcopy(condition_flags),
-                    copy.deepcopy(trace_obj),
+                    next_reg_values,
+                    memory_map,
+                    condition_flags,
+                    trace_obj,
                     new_path,
-                    copy.deepcopy(null_registers),
-                    self.global_counter
-                ])
-                self.global_counter+=1
+                    null_registers
+                )
                 return(None, None, null_registers)
             else:
                 return (next_reg_values, memory_map, null_registers)
@@ -2388,11 +2390,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, carry) = self.get_src_reg_value(next_reg_values, operands[1], 'int')
         if src_value == None: 
@@ -2408,7 +2412,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2426,11 +2430,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2452,7 +2458,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2473,11 +2479,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (result, carry) = self.get_src_reg_value(next_reg_values, operands[1])
         if operands[1].type == ARM_OP_REG: carry = None
@@ -2489,7 +2497,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2514,11 +2522,13 @@ class RegisterEvaluator:
             operand2 = operands[2]
            
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operand1.value.reg, operand2.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
         if value1 == None: 
@@ -2537,7 +2547,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result
@@ -2557,11 +2567,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2584,7 +2596,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2609,11 +2621,13 @@ class RegisterEvaluator:
             orr_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, orr_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2649,7 +2663,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2674,11 +2688,13 @@ class RegisterEvaluator:
             orr_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, orr_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2709,7 +2725,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2755,18 +2771,15 @@ class RegisterEvaluator:
                 trace_obj,
                 pc_target
             )
-            self.add_to_queue([
-                self.trace_register_values,
+            self.check_and_add_to_trace_queue(
                 pc_target,
-                copy.deepcopy(next_reg_values),
-                copy.deepcopy(memory_map),
-                copy.deepcopy(condition_flags),
-                copy.deepcopy(trace_obj),
+                next_reg_values,
+                memory_map,
+                condition_flags,
+                trace_obj,
                 current_path,
-                copy.deepcopy(null_registers),
-                self.global_counter
-            ])
-            self.global_counter+=1
+                null_registers
+            )
             return (None, memory_map, null_registers)
         return (next_reg_values, memory_map, null_registers)
     
@@ -2810,11 +2823,13 @@ class RegisterEvaluator:
             return (next_reg_values, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, _) = self.get_src_reg_value(next_reg_values, operands[1])
         if src_value == None: 
@@ -2848,11 +2863,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2873,7 +2890,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2891,11 +2908,13 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [operands[1].value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2915,7 +2934,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2940,11 +2959,13 @@ class RegisterEvaluator:
             add_operand = operands[2]
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, add_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2970,7 +2991,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -2996,11 +3017,13 @@ class RegisterEvaluator:
             add_operand = operands[2]
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, add_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3028,7 +3051,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -3183,11 +3206,13 @@ class RegisterEvaluator:
             add_operand = operands[2]
             
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [start_operand.value.reg, add_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (start_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3213,7 +3238,7 @@ class RegisterEvaluator:
             dst_operand,
             result
         )
-        if instruction.update_flags == True:
+        if ((instruction.update_flags == True) and (tainted == False)):
             condition_flags = self.update_condition_flags(
                 condition_flags,
                 result,
@@ -3235,11 +3260,13 @@ class RegisterEvaluator:
         src_operand = operands[1]
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [src_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3280,11 +3307,13 @@ class RegisterEvaluator:
         src_operand = operands[1]
         
         # Update null registers.
-        null_registers = self.update_null_registers(
+        (null_registers, tainted) = self.update_null_registers(
             null_registers,
             [src_operand.value.reg],
             [dst_operand]
         )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
         
         (src_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3851,10 +3880,6 @@ class RegisterEvaluator:
         if address_obj == None: return None
         if address == None: return None
         
-        if type(address_obj) is dict:
-            address_obj = list(address_obj.keys())
-            address_obj.sort()
-        
         if address in address_obj:
             index = address_obj.index(address)
             if index == 0:
@@ -3870,9 +3895,6 @@ class RegisterEvaluator:
     def get_previous_partial_address(self, address_obj, address):
         if address_obj == None: return None
         if address == None: return None
-        if type(address_obj) is dict:
-            address_obj = list(address_obj.keys())
-            address_obj.sort()
             
         if address not in address_obj:
             for i in range(1,4):
@@ -3889,15 +3911,6 @@ class RegisterEvaluator:
             address_obj = list(address_obj.keys())
             address_obj.sort()
             
-        # In the case of stack/RAM, the address we want may not be present.
-        # Get the next address for whichever address is lower than given 
-        #  address instead.
-        if ins_address not in address_obj:
-            for i in range(128):
-                if (ins_address-i) in address_obj:
-                    ins_address = ins_address-i
-                    break
-        # If even a much lower address is not present, then can't proceed.
         if ins_address not in address_obj: return None
         
         # Find index of the address and get next one up.
@@ -4314,6 +4327,25 @@ class RegisterEvaluator:
         
     # =======================================================================
     #----------------------------- Queue Handling ---------------------------
+    def check_and_add_to_trace_queue(self, target, register_object, memory_map,
+                                    condition_flags, trace_obj, current_path,
+                                    null_registers):
+        """Check whether a trace item is to be added to queue."""
+        # Perform checks.
+        
+        # Add to queue.
+        self.add_to_queue([
+            self.trace_register_values,
+            target,
+            copy.deepcopy(register_object),
+            copy.deepcopy(memory_map),
+            copy.deepcopy(condition_flags),
+            copy.deepcopy(trace_obj),
+            current_path,
+            copy.deepcopy(null_registers),
+            self.global_counter
+        ])
+        self.global_counter += 1
     
     def add_to_queue(self, queueItem):
         """Add a function object to queue. """
