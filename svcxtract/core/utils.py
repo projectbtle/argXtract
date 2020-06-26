@@ -51,3 +51,11 @@ def test_gcc_vs_other():
         'Compiler estimated to be: '
         + common_objs.compiler
     )
+    
+def sort_dict_keys(dictionary):
+    keys = list(dictionary.keys())
+    keys.sort()
+    sorted_dictionary = {}
+    for key in keys:
+        sorted_dictionary[key] = dictionary[key]
+    return sorted_dictionary
