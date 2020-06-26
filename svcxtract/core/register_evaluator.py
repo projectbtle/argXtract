@@ -80,7 +80,7 @@ class RegisterEvaluator:
             
             self.checked_paths[hex(start_point)] = {}
             current_path = hex(start_point)
-            
+
             # Add item to queue.
             self.add_to_trace_queue(
                 start_point,
@@ -195,6 +195,8 @@ class RegisterEvaluator:
                 logging.debug(
                     'Endpoint reached for '
                     + svc_name
+                    + ' at '
+                    + hex(ins_address)
                     + '!\n'
                     + 'memory: '
                     + self.print_memory(memory_map)
@@ -237,7 +239,7 @@ class RegisterEvaluator:
             logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
-            
+
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
@@ -1709,30 +1711,30 @@ class RegisterEvaluator:
         if dst_operand == None: 
             return (next_reg_values, condition_flags, null_registers)
         
+        if len(operands) == 2:
+            src_operand = operands[0]
+            shift_operand = operands[1]
+        else:
+            src_operand = operands[1]
+            shift_operand = operands[2]
+            
         # Update null registers.
         (null_registers, tainted) = self.update_null_registers(
             null_registers,
-            [operands[1].value.reg],
+            [src_operand.value.reg, shift_operand.value.reg],
             [dst_operand]
         )
         if tainted == True: 
             condition_flags = self.initialise_condition_flags()
-        
-        (src_value, _) = self.get_src_reg_value(
-            next_reg_values, 
-            operands[1], 
-            'int'
-        )
+
+        (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
             return (next_reg_values, condition_flags, null_registers)
-        
+            
         # Process shift.
-        if len(operands) == 2:
-            shift_value = self.get_shift_value(next_reg_values, operands[1])
-            (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
-        else:
-            shift_value = self.get_shift_value(next_reg_values, operands[2])
-            (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
+        shift_value = self.get_shift_value(next_reg_values, shift_operand)
+        
+        (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
             
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -2418,24 +2420,30 @@ class RegisterEvaluator:
         if dst_operand == None: 
             return (next_reg_values, condition_flags, null_registers)
         
+        if len(operands) == 2:
+            src_operand = operands[0]
+            shift_operand = operands[1]
+        else:
+            src_operand = operands[1]
+            shift_operand = operands[2]
+            
         # Update null registers.
         (null_registers, tainted) = self.update_null_registers(
             null_registers,
-            [operands[1].value.reg],
+            [src_operand.value.reg, shift_operand.value.reg],
             [dst_operand]
         )
         if tainted == True: 
             condition_flags = self.initialise_condition_flags()
-        
-        (src_value, carry) = self.get_src_reg_value(next_reg_values, operands[1], 'int')
+
+        (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
             return (next_reg_values, condition_flags, null_registers)
+            
         # Process shift.
-        if len(operands) == 2:
-            result = src_value
-        else:
-            shift_value = self.get_shift_value(next_reg_values, operands[2])
-            (result, carry) = self.logical_shift_left(src_value, shift_value)
+        shift_value = self.get_shift_value(next_reg_values, shift_operand)
+            
+        (result, carry) = self.logical_shift_left(src_value, shift_value)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -2458,30 +2466,30 @@ class RegisterEvaluator:
         if dst_operand == None: 
             return (next_reg_values, condition_flags, null_registers)
         
+        if len(operands) == 2:
+            src_operand = operands[0]
+            shift_operand = operands[1]
+        else:
+            src_operand = operands[1]
+            shift_operand = operands[2]
+            
         # Update null registers.
         (null_registers, tainted) = self.update_null_registers(
             null_registers,
-            [operands[1].value.reg],
+            [src_operand.value.reg, shift_operand.value.reg],
             [dst_operand]
         )
         if tainted == True: 
             condition_flags = self.initialise_condition_flags()
-        
-        (src_value, carry) = self.get_src_reg_value(
-            next_reg_values, 
-            operands[1], 
-            'int'
-        )
+
+        (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
             return (next_reg_values, condition_flags, null_registers)
-        
+            
         # Process shift.
-        if len(operands) == 2:
-            shift_value = self.get_shift_value(next_reg_values, operands[1])
-            (result, carry) = self.logical_shift_right(src_value, shift_value)
-        else:
-            shift_value = self.get_shift_value(next_reg_values, operands[2])
-            (result, carry) = self.logical_shift_right(src_value, shift_value)
+        shift_value = self.get_shift_value(next_reg_values, shift_operand)
+        
+        (result, carry) = self.logical_shift_right(src_value, shift_value)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -2892,28 +2900,29 @@ class RegisterEvaluator:
         if dst_operand == None: 
             return (next_reg_values, condition_flags, null_registers)
         
+        if len(operands) == 2:
+            src_operand = operands[0]
+            shift_operand = operands[1]
+        else:
+            src_operand = operands[1]
+            shift_operand = operands[2]
+            
         # Update null registers.
         (null_registers, tainted) = self.update_null_registers(
             null_registers,
-            [operands[1].value.reg],
+            [src_operand.value.reg, shift_operand.value.reg],
             [dst_operand]
         )
         if tainted == True: 
             condition_flags = self.initialise_condition_flags()
-        
-        (src_value, carry) = self.get_src_reg_value(
-            next_reg_values, 
-            operands[1], 
-            'int'
-        )
+
+        (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
             return (next_reg_values, condition_flags, null_registers)
-        
+            
         # Process shift.
-        if len(operands) == 2:
-            shift_value = self.get_shift_value(next_reg_values, operands[1])
-        else:
-            shift_value = self.get_shift_value(next_reg_values, operands[2])
+        shift_value = self.get_shift_value(next_reg_values, shift_operand)
+        
         (result, carry) = self.rotate_right(src_value, shift_value)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -4355,75 +4364,46 @@ class RegisterEvaluator:
         return extended_hex
         
     # =======================================================================
-    #-------------------------------- Pickling ------------------------------
-    def gen_pickle_file(self, source, target, register_object, 
-                            memory_map, condition_flags, trace_obj, 
-                            current_path, null_registers):
-        """Add objects to dictionary and pickle it."""
-        # Generate dictionary with function arguments.
-        pickle_object = {
-            'source': source,
-            'start': target,
-            'reg': register_object,
-            'ram': memory_map,
-            'condition': condition_flags,
-            'trace': trace_obj,
-            'path': current_path,
-            'null': null_registers,
-            'counter': self.global_counter
-        }
-        
-        # Generate a random number to store this.
-        pickle_name = hex(getrandbits(256))[2:]
-        pickle_file = os.path.join(
-            common_paths.tmp_path,
-            pickle_name + '.pkl'
-        )
-        
-        # Pickle the data.
-        with open(pickle_file, 'wb') as f:
-            pickle.dump(pickle_object, f)
-        return pickle_file
-        
-    def get_pickled_arguments(self, pickle_path):
-        """Load pickled data from file."""
-        # Get pickled data.
-        with open(pickle_path, 'rb') as f:
-            pickled_data = pickle.load(f)
-        
-        # Build the argument list.
-        argument_list = []
-        argument_list.append(pickled_data['start'])
-        argument_list.append(pickled_data['reg'])
-        argument_list.append(pickled_data['ram'])
-        argument_list.append(pickled_data['condition'])
-        argument_list.append(pickled_data['trace'])
-        argument_list.append(pickled_data['path'])
-        argument_list.append(pickled_data['null'])
-        argument_list.append(pickled_data['counter'])
-        
-        # We no longer need the file. Delete it to save space.
-        os.remove(pickle_path)
-        return argument_list
-        
-    # =======================================================================
     #----------------------------- Queue Handling ---------------------------
     def add_to_trace_queue(self, source, target, register_object, 
                                 memory_map, condition_flags, trace_obj, 
                                 current_path, null_registers):
         """Check whether a trace item is to be added to queue."""
         # Generate pickle file.
-        pickle_file = self.gen_pickle_file(
-            source, 
-            target, 
-            register_object, 
-            memory_map, 
-            condition_flags, 
-            trace_obj, 
-            current_path, 
-            null_registers
+        # Generate dictionary. Do not include elements that *will* change
+        #  with every new path (i.e., counter and traced path).
+        pickle_object = {
+            'source': source,
+            'start': target,
+            'reg': utils.sort_dict_keys(register_object),
+            'ram': utils.sort_dict_keys(memory_map),
+            'condition': utils.sort_dict_keys(condition_flags),
+            'null': utils.sort_dict_keys(null_registers)
+        }
+
+        pickle_bytes = pickle.dumps(pickle_object)
+        m = hashlib.sha256(pickle_bytes)
+        pickle_name = m.hexdigest()
+        
+        # Add the counter and path.
+        pickle_object['counter'] = self.global_counter
+        pickle_object['path'] =  current_path
+        pickle_object['trace'] = trace_obj
+        
+        pickle_file = os.path.join(
+            common_paths.tmp_path,
+            pickle_name + '.pkl'
         )
         
+        # If we have run the same trace before, with same set of parameters,
+        #  then don't re-run.
+        if pickle_file in self.instruction_queue:
+            return
+        
+        # Write pickled representation of data to file.
+        with open(pickle_file, 'wb') as f:
+            pickle.dump(pickle_object, f)
+            
         # Add to queue.
         self.instruction_queue.append(pickle_file)
         self.global_counter += 1
@@ -4448,3 +4428,24 @@ class RegisterEvaluator:
         
         # Execute the method with the provided arguments.
         self.trace_register_values(*argument_list)
+        
+    def get_pickled_arguments(self, pickle_path):
+        """Load pickled data from file."""
+        # Get pickled data.
+        with open(pickle_path, 'rb') as f:
+            pickled_data = pickle.load(f)
+        
+        # Build the argument list.
+        argument_list = []
+        argument_list.append(pickled_data['start'])
+        argument_list.append(pickled_data['reg'])
+        argument_list.append(pickled_data['ram'])
+        argument_list.append(pickled_data['condition'])
+        argument_list.append(pickled_data['trace'])
+        argument_list.append(pickled_data['path'])
+        argument_list.append(pickled_data['null'])
+        argument_list.append(pickled_data['counter'])
+        
+        # We no longer need the file. Delete it to save space.
+        os.remove(pickle_path)
+        return argument_list
