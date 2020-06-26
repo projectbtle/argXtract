@@ -237,7 +237,8 @@ class SvcAnalyser:
     def process_svc_chains(self):
         self.output_object = {
             'output': {},
-            'memory': {}
+            'memory': {},
+            'svcs': []
         }
         
         # Get all SVC chains.
@@ -258,6 +259,8 @@ class SvcAnalyser:
                 svc_call=int(svc_num, 16),
                 store=False
             )
+            if len(svc_chains) > 0:
+                self.output_object['svcs'].append(svc_name)
             processing_object[svc_name] = svc_chains
         # Combine the outputs, to reduce trace time.
         combined_trace_object = self.combine_svc_traces(processing_object)

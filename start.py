@@ -1,9 +1,11 @@
 import os
 import sys
 import json
+import shutil
 import hashlib
 import logging
 import argparse
+from time import sleep
 from svcxtract.common import objects as common_objs
 from svcxtract.core.analyser import FirmwareAnalyser
 from multiprocessing import Process, JoinableQueue, active_children
@@ -194,17 +196,32 @@ class SVCXtract:
             + ' firmware files to analyse.'
         )
 
+        # Create temporary folder.
+        logging.info('Creating tmp directory for working files.')
+        if (not (os.path.isdir('tmp'))):
+            os.mkdir('tmp')
+        else:
+            logging.debug('Deleting previous tmp directory.')
+            shutil.rmtree('tmp')
+            sleep(2)
+            os.mkdir('tmp')
+        
         if self.processes == 1:
             self.execute_single_process()
         else:
             self.execute_multiple_processes()
+            
+        # Remove the temporary directory and all files within.
+        logging.info('Cleaning up..')
+        shutil.rmtree('tmp')
             
     def execute_single_process(self):
         firmware_analyser = FirmwareAnalyser(
             self.vendor, 
             self.max_time,
             self.max_call_depth,
-            self.loglevel
+            self.loglevel,
+            0
         )
         for fw_file in self.core_file_list:
             #try:
@@ -338,7 +355,8 @@ class SVCXtractWorker:
             self.vendor, 
             self.max_time,
             self.max_call_depth,
-            self.loglevel
+            self.loglevel,
+            process_id
         )
         
         # Get job from queue.
@@ -366,6 +384,7 @@ class SVCXtractWorker:
                                       + "None"
                                   )
                     in_queue.task_done()
+                    sleep(2)
                     continue
                 # If an output was obtained.
                 # Write to file.
@@ -373,6 +392,7 @@ class SVCXtractWorker:
                     json.dump(output, f, indent=4)
                 out_queue.put(filename)
                 in_queue.task_done()
+                sleep(2)
                 continue
             except Exception as e:
                 out_queue.put(filename 
@@ -381,7 +401,8 @@ class SVCXtractWorker:
                                   + str(e)
                               )
                 in_queue.task_done()
-            
+                sleep(2)
+                continue
 
 if __name__ == '__main__':
     analysable_instance = SVCXtract()

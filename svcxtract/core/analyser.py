@@ -16,11 +16,11 @@ from svcxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
-    def __init__(self, vendor, max_time, max_call_depth, loglevel):
+    def __init__(self, vendor, max_time, max_call_depth, loglevel, process_id):
         common_objs.max_time = max_time
         common_objs.max_call_depth = max_call_depth
         logging.getLogger().setLevel(loglevel)
-        self.set_paths()
+        self.set_paths(process_id)
         
         # First things first, run vendor tests.
         self.chipset_analyser = ChipsetAnalyser()
@@ -142,23 +142,26 @@ class FirmwareAnalyser:
             final_output['metadata'] = chipset_metadata
         # Add output object.
         final_output['output'] = output_object['output']
+        final_output['svcs'] = output_object['svcs']
         return final_output
         
-    def set_paths(self):
+    def set_paths(self, process_id):
         curr_path = os.path.dirname(os.path.realpath(__file__))
         base_path = os.path.abspath(
             os.path.join(curr_path, '..')
         )
         common_paths.base_path = base_path
-        common_paths.config_path = os.path.abspath(
-            os.path.join(base_path, 'config')
-        )
         common_paths.core_path = os.path.abspath(
-            os.path.join(base_path, 'firmware')
+            os.path.join(base_path, 'core')
         )
         common_paths.resources_path = os.path.abspath(
             os.path.join(base_path, 'resources')
         )
+        common_paths.tmp_path = os.path.abspath(
+            os.path.join(base_path, '..', 'tmp', str(process_id))
+        )
+        if (not (os.path.isdir(common_paths.tmp_path))):
+            os.mkdir(common_paths.tmp_path)
         
     def reset(self):
         self.disassembler = None

@@ -4,13 +4,17 @@ import copy
 import json
 import struct
 import timeit
+import pickle
 import logging
+import hashlib
 import collections
 import numpy as np
 from capstone import *
 from capstone.arm import *
+from random import getrandbits
 from svcxtract.core import utils
 from svcxtract.core import consts
+from svcxtract.common import paths as common_paths
 from svcxtract.common import objects as common_objs
 
 
@@ -78,8 +82,8 @@ class RegisterEvaluator:
             current_path = hex(start_point)
             
             # Add item to queue.
-            self.add_to_queue([
-                self.trace_register_values,
+            self.add_to_trace_queue(
+                start_point,
                 start_point,
                 initialised_regs,
                 initial_memory,
@@ -87,13 +91,33 @@ class RegisterEvaluator:
                 trace_obj[start_point],
                 current_path,
                 null_registers
-            ])
+            )
         
         self.queue_handler()
         print('UNHANDLED')
         print(self.unhandled)
+        
+        # Clear all files.
+        self.clear_working_files()
         return
     
+    def clear_working_files(self):
+        for filename in os.listdir(common_paths.tmp_path):
+            file_path = os.path.join(common_paths.tmp_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                logging.error(
+                    'Failed to delete '
+                    + file_path
+                    + '. Reason: '
+                    + str(e)
+                )
+        return
+
     # =======================================================================  
     # ------------------------- Trace Path-Related --------------------------
     
@@ -104,7 +128,7 @@ class RegisterEvaluator:
         if start_point == None: return None
         # Make sure we aren't branching to the vector table, for some reason.
         code_start_point = common_objs.code_start_address
-        # TODO: We just ignore it, for now, but we need to see why it happens.
+        # We can get all-0 addresses if we load from non-existing addresses.
         if start_point < (code_start_point): 
             return None
         
@@ -210,10 +234,10 @@ class RegisterEvaluator:
             
             # Debug and trace messages.
             logging.debug('------------------------------------------')
-            #logging.debug('memory: ' + self.print_memory(memory_map))
+            logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
-
+            
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
@@ -397,7 +421,8 @@ class RegisterEvaluator:
         logging.debug('Counter: ' + str(self.global_counter))
         
         # Branch.
-        self.check_and_add_to_trace_queue(
+        self.add_to_trace_queue(
+            ins_address,
             branch_target,
             register_object,
             memory_map,
@@ -849,7 +874,8 @@ class RegisterEvaluator:
         debug_msg += (' with counter: ' + str(self.global_counter))
         logging.debug(debug_msg)
         
-        self.check_and_add_to_trace_queue(
+        self.add_to_trace_queue(
+            ins_address,
             branch_address,
             next_reg_values,
             memory_map,
@@ -1084,7 +1110,8 @@ class RegisterEvaluator:
             start_branch = original_address
             
         # Branch from postconditional.
-        self.check_and_add_to_trace_queue(
+        self.add_to_trace_queue(
+            original_address,
             branching_address,
             next_reg_values,
             memory_map,
@@ -2131,7 +2158,8 @@ class RegisterEvaluator:
                 )
                 
                 if should_branch == True:
-                    self.check_and_add_to_trace_queue(
+                    self.add_to_trace_queue(
+                        ins_address,
                         pc_target,
                         next_reg_values,
                         memory_map,
@@ -2197,7 +2225,8 @@ class RegisterEvaluator:
             )
             
             if should_branch == True:
-                self.check_and_add_to_trace_queue(
+                self.add_to_trace_queue(
+                    ins_address,
                     pc_target,
                     next_reg_values,
                     memory_map,
@@ -2771,7 +2800,8 @@ class RegisterEvaluator:
                 trace_obj,
                 pc_target
             )
-            self.check_and_add_to_trace_queue(
+            self.add_to_trace_queue(
+                ins_address,
                 pc_target,
                 next_reg_values,
                 memory_map,
@@ -4323,34 +4353,80 @@ class RegisterEvaluator:
         extended_bits += bin_value
         extended_hex = '%0*x' % ((len(extended_bits) + 3) // 4, int(extended_bits, 2))
         return extended_hex
-
+        
+    # =======================================================================
+    #-------------------------------- Pickling ------------------------------
+    def gen_pickle_file(self, source, target, register_object, 
+                            memory_map, condition_flags, trace_obj, 
+                            current_path, null_registers):
+        """Add objects to dictionary and pickle it."""
+        # Generate dictionary with function arguments.
+        pickle_object = {
+            'source': source,
+            'start': target,
+            'reg': register_object,
+            'ram': memory_map,
+            'condition': condition_flags,
+            'trace': trace_obj,
+            'path': current_path,
+            'null': null_registers,
+            'counter': self.global_counter
+        }
+        
+        # Generate a random number to store this.
+        pickle_name = hex(getrandbits(256))[2:]
+        pickle_file = os.path.join(
+            common_paths.tmp_path,
+            pickle_name + '.pkl'
+        )
+        
+        # Pickle the data.
+        with open(pickle_file, 'wb') as f:
+            pickle.dump(pickle_object, f)
+        return pickle_file
+        
+    def get_pickled_arguments(self, pickle_path):
+        """Load pickled data from file."""
+        # Get pickled data.
+        with open(pickle_path, 'rb') as f:
+            pickled_data = pickle.load(f)
+        
+        # Build the argument list.
+        argument_list = []
+        argument_list.append(pickled_data['start'])
+        argument_list.append(pickled_data['reg'])
+        argument_list.append(pickled_data['ram'])
+        argument_list.append(pickled_data['condition'])
+        argument_list.append(pickled_data['trace'])
+        argument_list.append(pickled_data['path'])
+        argument_list.append(pickled_data['null'])
+        argument_list.append(pickled_data['counter'])
+        
+        # We no longer need the file. Delete it to save space.
+        os.remove(pickle_path)
+        return argument_list
         
     # =======================================================================
     #----------------------------- Queue Handling ---------------------------
-    def check_and_add_to_trace_queue(self, target, register_object, memory_map,
-                                    condition_flags, trace_obj, current_path,
-                                    null_registers):
+    def add_to_trace_queue(self, source, target, register_object, 
+                                memory_map, condition_flags, trace_obj, 
+                                current_path, null_registers):
         """Check whether a trace item is to be added to queue."""
-        # Perform checks.
+        # Generate pickle file.
+        pickle_file = self.gen_pickle_file(
+            source, 
+            target, 
+            register_object, 
+            memory_map, 
+            condition_flags, 
+            trace_obj, 
+            current_path, 
+            null_registers
+        )
         
         # Add to queue.
-        self.add_to_queue([
-            self.trace_register_values,
-            target,
-            copy.deepcopy(register_object),
-            copy.deepcopy(memory_map),
-            copy.deepcopy(condition_flags),
-            copy.deepcopy(trace_obj),
-            current_path,
-            copy.deepcopy(null_registers),
-            self.global_counter
-        ])
+        self.instruction_queue.append(pickle_file)
         self.global_counter += 1
-    
-    def add_to_queue(self, queueItem):
-        """Add a function object to queue. """
-        self.instruction_queue.append(queueItem)
-        return
             
     def queue_handler(self):
         """Call queue handler as long as queue not empty and time available. """
@@ -4366,9 +4442,9 @@ class RegisterEvaluator:
         
     def handle_queue(self):
         """Pop first function object and execute. """            
-        function_block = self.instruction_queue.popleft()
+        # Get the arguments
+        pickle_path = self.instruction_queue.popleft()
+        argument_list = self.get_pickled_arguments(pickle_path)
+        
         # Execute the method with the provided arguments.
-        function_ref = function_block[0]
-        function_block.remove(function_ref)
-        function_ref(*function_block)
-         
+        self.trace_register_values(*argument_list)
