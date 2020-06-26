@@ -8,7 +8,7 @@ from svcxtract.common import objects as common_objs
 
 class ChipsetAnalyser:
     def __init__(self):
-        pass
+        self.vendor_analyser = None
         
     def initialise(self, vendor):
         self.vendor_analyser = None

@@ -59,8 +59,6 @@ class FunctionEvaluator:
         function_block_start_addresses.sort()
         
         # Step 2.
-        # TODO: This results in quite a few incorrect boundaries,
-        #  because in some cases the function starts with LDR.
         function_block_start_addresses = self.check_opcodes_for_fb_start(
             function_block_start_addresses
         )
@@ -107,7 +105,7 @@ class FunctionEvaluator:
             debug_msg = 'Function block starting addresses:\n'
             for item in function_blocks.keys():
                 debug_msg += '\t\t\t\t' + hex(item) +'\n'
-        logging.debug(debug_msg)
+        logging.trace(debug_msg)
         common_objs.function_blocks = function_blocks
 
         # Populate xref to.
@@ -154,6 +152,12 @@ class FunctionEvaluator:
         for fb_start in common_objs.function_blocks:
             call_depth = self.get_fblock_call_depth(fb_start, [fb_start])
             common_objs.function_blocks[fb_start]['call_depth'] = call_depth
+            logging.debug(
+                'Call depth for function at '
+                + hex(fb_start)
+                + ' is '
+                + str(call_depth)
+            )
             
     def get_fblock_call_depth(self, fb_start_address, checked):
         all_counters = []
@@ -468,6 +472,7 @@ class FunctionEvaluator:
     def check_preexisting_block(self, function_block_start_addresses,
                                 address, boundary=10):
         preexists = False
+        function_block_start_addresses.sort()
         for existing_candidate_address in function_block_start_addresses:
             lower_bound = existing_candidate_address - boundary
             upper_bound = existing_candidate_address + boundary
