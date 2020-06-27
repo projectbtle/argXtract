@@ -18,7 +18,14 @@ class FunctionEvaluator:
         logging.info(
             'Performing function block analyses.'
         )
-        self.all_addresses = list(common_objs.disassembled_firmware.keys())
+        # Get all instruction addresses.
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        self.all_addresses = []
+        for address in all_addresses:
+            if address < common_objs.app_code_base:
+                continue
+            self.all_addresses.append(address)
         
         # Identify function blocks.
         self.find_function_blocks()

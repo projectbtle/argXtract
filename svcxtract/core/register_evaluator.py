@@ -33,8 +33,13 @@ class RegisterEvaluator:
         self.master_trace_obj = trace_obj
         
         # Get all instruction addresses.
-        self.all_addresses = list(common_objs.disassembled_firmware.keys())
-        self.all_addresses.sort()
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        self.all_addresses = []
+        for address in all_addresses:
+            if address < common_objs.app_code_base:
+                continue
+            self.all_addresses.append(address)
 
         # Keep track of checked traces, to avoid repeating.
         self.checked_traces = []

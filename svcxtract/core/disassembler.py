@@ -336,8 +336,6 @@ class FirmwareDisassembler:
             # Target address is PC + offset.
             operands = insn.operands
             ldr_target = curr_pc_value + operands[1].mem.disp
-            if 'data' not in common_objs.disassembled_firmware[ldr_target]:
-                print(ldr_target)
             ordered_bytes = common_objs.disassembled_firmware[ldr_target]['data']
             
             # If it's an LDR instruction, then the bytes themselves may 
