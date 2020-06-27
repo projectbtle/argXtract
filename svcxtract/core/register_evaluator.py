@@ -2251,7 +2251,7 @@ class RegisterEvaluator:
         elif opcode_id in [ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH]:
             num_bytes = 2
         if src_memory_address % num_bytes != 0:
-            logging.warning('Misaligned LDR/H/B')
+            logging.warning('Misaligned LDR/H')
         num_halfbytes = int(num_bytes*2)
         
         (src_value, null_value) = self.get_value_from_memory(
@@ -2259,7 +2259,8 @@ class RegisterEvaluator:
             src_memory_address,
             unprocessed=True
         )
-
+        logging.debug('Loaded value: ' + str(src_value))
+        
         # Hacky method to ensure both branches are
         #  taken if an LDR value is used for comparison, 
         #  and the value does not actually exist.
@@ -3655,7 +3656,7 @@ class RegisterEvaluator:
         
     def get_firmware_bytes(self, address, num_bytes=4, dtype='hex', 
             endian=common_objs.endian):
-        address = address - common_objs.app_code_base
+        address = address - common_objs.disassembly_start_address
         end_address = address + num_bytes
         data_bytes = None
         remaining_bytes = num_bytes

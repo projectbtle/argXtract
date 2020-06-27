@@ -82,10 +82,12 @@ class FirmwareDisassembler:
                 'insn': instruction,
                 'is_data': False
             }
-            trace_msg += '\t\t\t\t0x%x:\t%s\t%s\n' %(instruction.address,
+            bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
+            trace_msg += '\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(instruction.address,
+                                            bytes,
                                             instruction.mnemonic,
                                             instruction.op_str)
-        logging.trace(trace_msg)
+        logging.debug(trace_msg)
         return disassembled_fw
         
     def add_dummy_keys(self, disassembled_fw):
