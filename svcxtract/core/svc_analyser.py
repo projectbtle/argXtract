@@ -32,9 +32,11 @@ class SvcAnalyser:
     def create_svc_object(self):
         svc_object = {}
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address < common_objs.code_start_address:
+                continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
                 continue
-                
+            
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             
             # Only consider SVC instructions.
