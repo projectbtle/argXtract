@@ -241,7 +241,7 @@ class RegisterEvaluator:
             
             # Debug and trace messages.
             logging.debug('------------------------------------------')
-            logging.debug('memory: ' + self.print_memory(memory_map))
+            logging.trace('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
 
@@ -877,6 +877,7 @@ class RegisterEvaluator:
         )
         if should_branch != True:
             branch_address = skip_address
+            new_path = current_path
             
         debug_msg += (' with counter: ' + str(self.global_counter))
         logging.debug(debug_msg)
@@ -1738,7 +1739,9 @@ class RegisterEvaluator:
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
-        
+        if shift_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
+            
         (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
             
         next_reg_values = self.store_register_bytes(
@@ -2448,6 +2451,8 @@ class RegisterEvaluator:
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
+        if shift_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.logical_shift_left(src_value, shift_value)
         next_reg_values = self.store_register_bytes(
@@ -2494,7 +2499,9 @@ class RegisterEvaluator:
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
-        
+        if shift_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
+            
         (result, carry) = self.logical_shift_right(src_value, shift_value)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -2579,7 +2586,9 @@ class RegisterEvaluator:
         (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
         if value2 == None: 
             return (next_reg_values, condition_flags, null_registers)
-        
+
+        value1 = getattr(value1, "tolist", lambda: value1)()
+        value2 = getattr(value2, "tolist", lambda: value2)()
         mul_value = value1 * value2
         mul_value = '{0:08x}'.format(mul_value)
         mul_value = mul_value.zfill(8)
@@ -2928,7 +2937,9 @@ class RegisterEvaluator:
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
-        
+        if shift_value == None: 
+            return (next_reg_values, condition_flags, null_registers)
+            
         (result, carry) = self.rotate_right(src_value, shift_value)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3438,11 +3449,8 @@ class RegisterEvaluator:
             src_value = src_operand.value.imm
             if src_value < 0:
                 src_value = '{:08x}'.format(src_value & (2**32-1))
-            elif src_value > 2147483647:
-                src_value = np.uint32(src_value)
-                src_value = '{:08x}'.format(src_value & (2**32-1))
             else:
-                src_value = np.int32(src_value)
+                src_value = np.uint32(src_value)
                 src_value = '{:08x}'.format(src_value & (2**32-1))
         elif src_operand.type == ARM_OP_REG:
             src_register = src_operand.value.reg
