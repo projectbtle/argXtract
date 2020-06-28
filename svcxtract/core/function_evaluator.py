@@ -140,6 +140,7 @@ class FunctionEvaluator:
             address = self.get_next_address(self.all_addresses, address)
             if address == None: break
             if address > fb_end: break
+            if address in common_objs.errored_instructions: break
             at_address = common_objs.disassembled_firmware[address]
             if at_address['is_data'] == True:
                 continue
@@ -199,6 +200,8 @@ class FunctionEvaluator:
             )
         # Add self-targeting branches.
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address < common_objs.code_start_address:
+                continue
             if ins_address in common_objs.errored_instructions:
                 continue
             at_address = common_objs.disassembled_firmware[ins_address]
@@ -506,6 +509,8 @@ class FunctionEvaluator:
         #  instruction.
         for ins_address in common_objs.disassembled_firmware:
             if ins_address in common_objs.errored_instructions:
+                continue
+            if ins_address < common_objs.code_start_address:
                 continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
                 continue
