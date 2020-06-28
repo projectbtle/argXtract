@@ -87,7 +87,7 @@ class FirmwareDisassembler:
                                             bytes,
                                             instruction.mnemonic,
                                             instruction.op_str)
-        logging.debug(trace_msg)
+        logging.trace(trace_msg)
         return disassembled_fw
         
     def add_dummy_keys(self, disassembled_fw):
@@ -123,6 +123,8 @@ class FirmwareDisassembler:
             'Checking for presence of inline data (data as instructions).'
         )
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address < common_objs.code_start_address:
+                continue
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None:
                 continue
@@ -210,6 +212,7 @@ class FirmwareDisassembler:
                 #  bytes from next "instruction".
                 if len(data_bytes) < 4:
                     data_bytes = self.get_data_from_next_instruction(
+                        ins_address,
                         ldr_target,
                         data_bytes
                     )
@@ -230,7 +233,7 @@ class FirmwareDisassembler:
             else:
                 continue
 
-    def get_data_from_next_instruction(self, ldr_target, data_bytes):
+    def get_data_from_next_instruction(self, ins_address, ldr_target, data_bytes):
         if (ldr_target+2) not in common_objs.disassembled_firmware:
             logging.error(
                 'Required 4 bytes not found. '
@@ -318,6 +321,8 @@ class FirmwareDisassembler:
         min_address = all_addresses[0]
         max_address = all_addresses[-1]
         for ins_address in common_objs.disassembled_firmware:
+            if ins_address < common_objs.code_start_address:
+                continue
             if ins_address in common_objs.errored_instructions:
                 continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
