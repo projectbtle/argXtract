@@ -966,6 +966,9 @@ class SvcAnalyser:
                     )
                     num_hex_chars = int(num_random_bits/4)
                     value_to_store = hex(getrandbits(num_random_bits))[2:]
+                    # Don't allow all-0 random number.
+                    while value_to_store.replace('0', '').strip() == '':
+                        value_to_store = hex(getrandbits(num_random_bits))[2:]
                     value_to_store = value_to_store.zfill(num_hex_chars)
                     output_object['memory'][mem_address] = value_to_store
                     logging.debug(
