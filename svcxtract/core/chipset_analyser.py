@@ -9,15 +9,23 @@ from svcxtract.common import objects as common_objs
 class ChipsetAnalyser:
     def __init__(self):
         self.vendor_analyser = None
-        
-    def initialise(self, vendor):
-        self.vendor_analyser = None
-        
         self.path_to_vendors = os.path.join(
             common_paths.resources_path,
             'vendor'
         )
-
+        
+        if common_objs.vendor != None:
+            # Load vendor-specific module.
+            vendor_analyser_path = os.path.join(
+                self.path_to_vendors,
+                common_objs.vendor
+            )
+            sys.path.append(os.path.abspath(vendor_analyser_path))
+            from chipset_analyser import VendorChipsetAnalyser
+            self.vendor_analyser = VendorChipsetAnalyser()
+        
+    def initialise(self, vendor):
+        self.vendor_analyser = None
         vendor_dirs = next(os.walk(self.path_to_vendors))[1]
         if vendor == None:
             if len(vendor_dirs) > 1:
