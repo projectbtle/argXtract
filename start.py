@@ -17,6 +17,7 @@ class SVCXtract:
         self.processes = 1
         self.max_time = common_objs.max_time
         self.max_call_depth = common_objs.max_call_depth
+        self.null_handling = common_objs.null_value_handling
         self.core_file_list = []
         self.loglevel = logging.INFO
         logging.getLogger().setLevel(self.loglevel)
@@ -100,6 +101,18 @@ class SVCXtract:
             action = 'store',
             help = 'number of parallel processes ("threads") to use.'
         )
+        self.argparser.add_argument(
+            '-n',
+            '--null',
+            type = str,
+            choices = ['n', 'l', 's'],
+            action = 'store',
+            nargs = '?',
+            help = 'mechanism for handling null values (mainly those in LDR). '
+                   + 'One of n (none - do nothing), '
+                   + 'l (loose - keep track when LDR attempts to load from outside RAM), '
+                   + 's (strict - keep track when LDR attempts to load from any inaccessible memory location).'
+        )
         
     def check_args(self):
         args = self.argparser.parse_args()
@@ -182,6 +195,9 @@ class SVCXtract:
         if args.processes:
             if args.processes > 0:
                 self.processes = args.processes
+                
+        if args.null:
+            self.null_handling = args.null
             
     def start_analysis(self):
         # Banner.
@@ -221,6 +237,7 @@ class SVCXtract:
             self.max_time,
             self.max_call_depth,
             self.loglevel,
+            self.null_handling,
             0
         )
         outfile = open('status.csv', 'w')
@@ -271,7 +288,8 @@ class SVCXtract:
                 self.vendor, 
                 self.max_time,
                 self.max_call_depth,
-                self.loglevel
+                self.loglevel,
+                self.null_handling
             )
             worker = Process(
                 target=workerx.main,
@@ -321,7 +339,8 @@ class SVCXtract:
                             self.vendor, 
                             self.max_time,
                             self.max_call_depth,
-                            self.loglevel
+                            self.loglevel,
+                            self.null_handling
                         )
                         worker = Process(
                             target=workerx.main, 
@@ -347,11 +366,12 @@ class SVCXtract:
             
 
 class SVCXtractWorker:
-    def __init__(self, vendor, max_time, max_call_depth, loglevel):
+    def __init__(self, vendor, max_time, max_call_depth, loglevel, null_handling):
         self.vendor = vendor
         self.max_time = max_time
         self.max_call_depth = max_call_depth
         self.loglevel = loglevel
+        self.null_handling = null_handling
         logging.getLogger().setLevel(loglevel)
         
     def main(self, in_queue, out_queue, process_id):
@@ -360,6 +380,7 @@ class SVCXtractWorker:
             self.max_time,
             self.max_call_depth,
             self.loglevel,
+            self.null_handling,
             process_id
         )
         

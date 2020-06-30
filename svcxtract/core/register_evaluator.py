@@ -1516,6 +1516,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1524,6 +1525,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if add_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
 
         carry_in = condition_flags['c']
@@ -1581,6 +1583,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values,
@@ -1589,6 +1592,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if add_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         (result, carry, overflow) = self.add_with_carry(start_value, add_value)
@@ -1632,6 +1636,7 @@ class RegisterEvaluator:
             'int'
         )        
         if add_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         if operands[1].subtracted == True:
@@ -1677,6 +1682,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (and_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -1684,7 +1690,8 @@ class RegisterEvaluator:
             'int',
             condition_flags['c']
         )
-        if and_value == None: 
+        if and_value == None:
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, and_value])
@@ -1735,11 +1742,13 @@ class RegisterEvaluator:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
@@ -1774,6 +1783,7 @@ class RegisterEvaluator:
             'int'
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[1], 'int')
@@ -1822,6 +1832,7 @@ class RegisterEvaluator:
             'int'
         )
         if original_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         (src_value, _) = self.get_src_reg_value(
@@ -1830,6 +1841,7 @@ class RegisterEvaluator:
             'int'
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
@@ -1890,6 +1902,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (not_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -1898,6 +1911,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if not_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
 
         np_dtype = self.get_numpy_type([start_value, not_value])
@@ -1952,6 +1966,7 @@ class RegisterEvaluator:
             'hex'
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         num_bits = int(len(src_value) * 2)
@@ -1997,13 +2012,14 @@ class RegisterEvaluator:
             return (condition_flags, null_registers)
         
         # Process null_registers
-        if (operands[0].value.reg) in null_registers:
-            condition_flags = self.initialise_condition_flags()
-            return (condition_flags, null_registers)
-        if operands[1].type == ARM_OP_REG:
-            if (operands[1].value.reg) in null_registers:
+        if common_objs.null_value_handling != consts.NULL_HANDLING_NONE:
+            if (operands[0].value.reg) in null_registers:
                 condition_flags = self.initialise_condition_flags()
                 return (condition_flags, null_registers)
+            if operands[1].type == ARM_OP_REG:
+                if (operands[1].value.reg) in null_registers:
+                    condition_flags = self.initialise_condition_flags()
+                    return (condition_flags, null_registers)
         
         # Test conditional.
         overflow = None
@@ -2069,6 +2085,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2077,6 +2094,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if orr_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, orr_value])
@@ -2105,9 +2123,17 @@ class RegisterEvaluator:
         if dst_operand in null_registers:
             del null_registers[dst_operand]
         if null_value == True:
-            address_type = self.get_address_type(address)
-            if ((address_type != consts.ADDRESS_FIRMWARE) 
-                    and (address_type != consts.ADDRESS_RAM)):
+            if common_objs.null_value_handling == consts.NULL_HANDLING_LOOSE:
+                address_type = self.get_address_type(address)
+                if ((address_type != consts.ADDRESS_FIRMWARE) 
+                        and (address_type != consts.ADDRESS_RAM)):
+                    logging.debug(
+                        'LDR source is unavailable. Register '
+                        + str(dst_operand)
+                        + ' marked as null.'
+                    )
+                    null_registers[dst_operand] = {}
+            elif common_objs.null_value_handling == consts.NULL_HANDLING_STRICT:
                 logging.debug(
                     'LDR source is unavailable. Register '
                     + str(dst_operand)
@@ -2215,6 +2241,7 @@ class RegisterEvaluator:
             )
         
         if src_memory_address == None:
+            null_registers[dst_operand] = {}
             logging.error('Null src address: ' + hex(ins_address))
             return (next_reg_values, memory_map, null_registers)
 
@@ -2346,6 +2373,7 @@ class RegisterEvaluator:
             )
         
         if src_memory_address == None:
+            null_registers[dst_operand] = {}
             logging.error('Null src address: ' + hex(ins_address))
             return (next_reg_values, memory_map, null_registers)
             
@@ -2447,11 +2475,13 @@ class RegisterEvaluator:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.logical_shift_left(src_value, shift_value)
@@ -2495,11 +2525,13 @@ class RegisterEvaluator:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.logical_shift_right(src_value, shift_value)
@@ -2540,6 +2572,7 @@ class RegisterEvaluator:
         (result, carry) = self.get_src_reg_value(next_reg_values, operands[1])
         if operands[1].type == ARM_OP_REG: carry = None
         if result == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         next_reg_values = self.store_register_bytes(
@@ -2582,9 +2615,11 @@ class RegisterEvaluator:
         
         (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
         if value1 == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
         if value2 == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
 
         value1 = getattr(value1, "tolist", lambda: value1)()
@@ -2634,6 +2669,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([src_value])
@@ -2687,6 +2723,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2695,6 +2732,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if orr_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, orr_value])
@@ -2754,6 +2792,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2762,6 +2801,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if orr_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         np_dtype = self.get_numpy_type([start_value, orr_value])
@@ -2886,6 +2926,7 @@ class RegisterEvaluator:
         
         (src_value, _) = self.get_src_reg_value(next_reg_values, operands[1])
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         # reversed_bits.
@@ -2933,11 +2974,13 @@ class RegisterEvaluator:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.rotate_right(src_value, shift_value)
@@ -2978,6 +3021,7 @@ class RegisterEvaluator:
             'int'
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         # Process shift.
@@ -3029,6 +3073,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3037,6 +3082,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if add_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
 
         (result, carry, overflow) = \
@@ -3087,6 +3133,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3095,6 +3142,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if add_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
 
         carry_in = condition_flags['c']
@@ -3276,6 +3324,7 @@ class RegisterEvaluator:
             'int'
         )
         if start_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -3284,6 +3333,7 @@ class RegisterEvaluator:
             condition_flags['c']
         )
         if add_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
         (result, carry, overflow) = \
@@ -3330,6 +3380,7 @@ class RegisterEvaluator:
             'hex'
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         # This is to make sure we get the correct bytes.
@@ -3377,6 +3428,7 @@ class RegisterEvaluator:
             'hex'
         )
         if src_value == None: 
+            null_registers[dst_operand] = {}
             return (next_reg_values, null_registers)
         
         # This is to make sure we get the correct bytes.

@@ -16,9 +16,11 @@ from svcxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
-    def __init__(self, vendor, max_time, max_call_depth, loglevel, process_id):
+    def __init__(self, vendor, max_time, max_call_depth, loglevel, 
+                    null_handling, process_id):
         common_objs.max_time = max_time
         common_objs.max_call_depth = max_call_depth
+        common_objs.null_value_handling = null_handling
         logging.getLogger().setLevel(loglevel)
         self.set_paths(process_id)
         

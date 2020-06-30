@@ -10,6 +10,7 @@ vendor = None
 endian = 'little'
 allow_loops = True
 max_call_depth = 1
+null_value_handling = consts.NULL_HANDLING_NONE
 
 #========== File-specific variables =========
 

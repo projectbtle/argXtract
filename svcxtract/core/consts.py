@@ -4,9 +4,6 @@ from capstone.arm import *
 COMPILER_GCC = 'gcc'
 COMPILER_NON_GCC = 'non_gcc'
 
-# Vendors.
-NORDIC = 'nordic'
-
 # Functions.
 MEMSET = 'memset'
 
@@ -14,6 +11,11 @@ MEMSET = 'memset'
 ADDRESS_FIRMWARE = 'firmware'
 ADDRESS_RAM = 'ram'
 ADDRESS_STACK = 'stack'
+
+# Null value handling.
+NULL_HANDLING_NONE = 'n'
+NULL_HANDLING_LOOSE = 'l'
+NULL_HANDLING_STRICT = 's'
 
 # Error codes
 ERROR_INVALID_INSTRUCTION = 'error_invalid_ins'
