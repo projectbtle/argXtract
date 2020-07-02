@@ -57,6 +57,9 @@ class FirmwareAnalyser:
         # Test for compiler type.
         utils.test_gcc_vs_other()
         
+        # Get AVT
+        utils.analyse_vector_table(path_to_fw)
+        
         # Run vendor-specific tests and find out the chipset/vendor.
         # This function will also set chipset-specific variables, 
         #  such as app code base, etc.
@@ -206,4 +209,4 @@ class FirmwareAnalyser:
         # Chipset-specific reset.
         self.chipset_analyser.reset()
         
-        
+    
