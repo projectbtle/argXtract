@@ -122,6 +122,10 @@ class FirmwareDisassembler:
         logging.debug(
             'Checking for presence of inline data (data as instructions).'
         )
+
+        # Read in data from the Reset Handler.
+        self.analyse_data_regions_via_reset_handler()
+        
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
@@ -233,6 +237,91 @@ class FirmwareDisassembler:
             else:
                 continue
 
+    def analyse_data_regions_via_reset_handler(self):
+        reset_handler_address = common_objs.application_vector_table['reset']
+        address = reset_handler_address - 2
+        max_address = address + 30
+        ram_min = common_objs.ram_base
+        ram_max = ram_min + common_objs.ram_length
+        data_start_firmware_address = ''
+        data_start_real_address = ''
+        while address < max_address:
+            address += 2
+            insn = common_objs.disassembled_firmware[address]['insn']
+            if insn == None:
+                continue
+            
+            # If there's inline data, we've probably come to the end.
+            if insn.id == ARM_INS_INVALID:
+                common_objs.disassembled_firmware[address]['is_data'] = True
+                break
+                
+            if self.check_valid_pc_ldr(insn) != True:
+                continue
+                
+            if insn.id == ARM_INS_LDR:
+                curr_pc_value = self.reg_eval.get_mem_access_pc_value(address)
+                
+                # Target address is PC + offset.
+                operands = insn.operands
+                ldr_target = curr_pc_value + operands[1].mem.disp
+                ldr_value = self.reg_eval.get_firmware_bytes(ldr_target, 4)
+                ldr_value = int(ldr_value, 16)
+                common_objs.disassembled_firmware[ldr_target]['is_data'] = True
+                common_objs.disassembled_firmware[ldr_target]['data'] = ldr_value
+                if ldr_value in common_objs.disassembled_firmware:
+                    if data_start_firmware_address == '':
+                        data_start_firmware_address = ldr_value
+                    else:
+                        # We will use the largest value as start address.
+                        if ldr_value < data_start_firmware_address:
+                            continue
+                        data_start_firmware_address = ldr_value
+                    logging.debug(
+                        'Possible start of .data is at: ' 
+                        + hex(ldr_value)
+                    )
+                elif((ldr_value >= ram_min) and (ldr_value <= ram_max)):
+                    if data_start_real_address == '':
+                        data_start_real_address = ldr_value
+                    else:
+                        # We will use smallest value as address.
+                        if ldr_value > data_start_real_address:
+                            continue
+                        else:
+                            data_start_real_address = ldr_value
+                    logging.debug(
+                        'Possible start address for .data: ' 
+                        + hex(ldr_value)
+                    )
+        if data_start_firmware_address == '':
+            return
+        if data_start_real_address == '':
+            return
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        last_address = all_addresses[-1]
+        if data_start_firmware_address >= last_address:
+            return
+        data_region = {}
+        fw_address = data_start_firmware_address
+        real_address = data_start_real_address
+        while fw_address <= last_address:
+            if real_address % 4 == 0:
+                data_region_value = \
+                    self.reg_eval.get_firmware_bytes(
+                        fw_address, 
+                        4,
+                        endian='big'
+                    )
+                data_region[real_address] = data_region_value
+            common_objs.disassembled_firmware[fw_address]['is_data'] = True
+            common_objs.disassembled_firmware[fw_address]['data'] = \
+                int(data_region_value, 16)
+            real_address += 2
+            fw_address += 2
+        common_objs.data_region = data_region
+        logging.debug(common_objs.data_region)
+    
     def get_data_from_next_instruction(self, ins_address, ldr_target, data_bytes):
         if (ldr_target+2) not in common_objs.disassembled_firmware:
             logging.error(
@@ -342,7 +431,7 @@ class FirmwareDisassembler:
             operands = insn.operands
             ldr_target = curr_pc_value + operands[1].mem.disp
             ordered_bytes = common_objs.disassembled_firmware[ldr_target]['data']
-            
+
             # If it's an LDR instruction, then the bytes themselves may 
             #  represent an address within the instructions.
             if ((ordered_bytes >= min_address) and (ordered_bytes <= max_address)):

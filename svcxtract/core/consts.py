@@ -8,6 +8,7 @@ COMPILER_NON_GCC = 'non_gcc'
 MEMSET = 'memset'
 
 # Address types.
+ADDRESS_DATA = 'data'
 ADDRESS_FIRMWARE = 'firmware'
 ADDRESS_RAM = 'ram'
 ADDRESS_STACK = 'stack'

@@ -712,7 +712,7 @@ class SvcAnalyser:
             mem_address,
             memory_regs['memory']
         )
-        if address_type is consts.ADDRESS_FIRMWARE:
+        if address_type == consts.ADDRESS_FIRMWARE:
             value = self.reg_eval.get_firmware_bytes(
                 mem_address,
                 num_bytes,
@@ -720,7 +720,14 @@ class SvcAnalyser:
                 endian
             )
             return value
-           
+        if address_type == consts.ADDRESS_DATA:
+            value = self.reg_eval.get_data_bytes(
+                mem_address,
+                num_bytes,
+                'hex',
+                endian
+            )
+            return value
         value = ''           
         if (num_bytes%4 == 0):
             num_words = int(num_bytes/4)

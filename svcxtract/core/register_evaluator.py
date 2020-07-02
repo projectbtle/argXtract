@@ -241,7 +241,7 @@ class RegisterEvaluator:
             
             # Debug and trace messages.
             logging.debug('------------------------------------------')
-            logging.trace('memory: ' + self.print_memory(memory_map))
+            logging.debug('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
 
@@ -3653,6 +3653,15 @@ class RegisterEvaluator:
     #---------------------------- Memory Operations -------------------------
     
     def get_address_type(self, address, memory_map=None):
+        # DATA
+        data_region = list(common_objs.data_region.keys())
+        data_region.sort()
+        if len(data_region) > 1:
+            start_data_region = data_region[0]
+            end_data_region = data_region[-1]
+            if ((address >= start_data_region) 
+                    and (address <= end_data_region)):
+                return consts.ADDRESS_DATA
         # RAM.
         start_ram_address = common_objs.ram_base
         end_ram_address = start_ram_address + common_objs.ram_length
@@ -3698,7 +3707,9 @@ class RegisterEvaluator:
         address_type = self.get_address_type(address, memory_map)
         src_value = None
         ret_none = False
-        if address_type is consts.ADDRESS_FIRMWARE:
+        if address_type == consts.ADDRESS_DATA:
+            src_value = self.get_data_bytes(address, num_bytes, dtype)
+        elif address_type == consts.ADDRESS_FIRMWARE:
             src_value = self.get_firmware_bytes(address, num_bytes, dtype)
         else:
             src_value = self.get_memory_bytes(
@@ -3718,6 +3729,76 @@ class RegisterEvaluator:
             src_value = ''.zfill(num_bytes*2)
             ret_none = True
         return (src_value, ret_none)
+        
+    def get_data_bytes(self, address, num_bytes=4, dtype='hex',
+            endian=common_objs.endian):
+        logging.debug(
+            'Getting ' 
+            + str(num_bytes)
+            + ' bytes from data region '
+            + ' starting at memory address '
+            + hex(address)
+        )
+        remaining_bytes = num_bytes
+        value = ''
+        while remaining_bytes > 0:
+            if remaining_bytes >= 4:
+                obtained_bytes = 4
+                if address not in common_objs.data_region:
+                    first_half = address - 2
+                    second_half = address + 2
+                    if first_half not in common_objs.data_region:
+                        return None
+                    if second_half not in common_objs.data_region:
+                        return None
+                    first_half_data = common_objs.data_region[first_half][4:]
+                    second_half_data = common_objs.data_region[second_half][0:4]
+                    data = first_half_data + second_half_data
+                else:
+                    data = common_objs.data_region[address]
+            elif (remaining_bytes >= 2):
+                obtained_bytes = 2
+                if address not in common_objs.data_region:
+                    address = address - 2
+                    if address not in common_objs.data_region:
+                        return None
+                    data = common_objs.data_region[address]
+                    data = data[4:]
+                else:
+                    data = common_objs.data_region[address]
+                    data = data[0:4]
+            elif (remaining_bytes == 1):
+                obtained_bytes = 1
+                if address not in common_objs.data_region:
+                    address = address -1
+                    if address not in common_objs.data_region:
+                        address = address -1
+                        if address not in common_objs.data_region:
+                            address = address -1
+                            if address not in common_objs.data_region:
+                                return None
+                            data = common_objs.data_region[address]
+                            data = data[6:]
+                        else:
+                            data = common_objs.data_region[address]
+                            data = data[4:]
+                    else:
+                        data = common_objs.data_region[address]
+                        data = data[2:]
+                else:
+                    data = common_objs.data_region[address]
+                    data = data[0:2]
+            value += data
+            remaining_bytes -= obtained_bytes
+            address += obtained_bytes
+        if endian == 'little':
+            value = self.reverse_bytes(self.convert_type(value, 'bytes'))
+            value = self.convert_type(value, 'hex')
+        logging.debug('Read bytes ' + value)
+        # Type conversion.
+        value = self.convert_type(value, dtype)
+        return value
+                
         
     def get_firmware_bytes(self, address, num_bytes=4, dtype='hex', 
             endian=common_objs.endian):

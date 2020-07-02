@@ -28,6 +28,7 @@ application_vector_table = {}
 svc_set = {}
 firmware_bytes = None
 disassembled_firmware = {}
+data_region = {}
 errored_instructions = []
 function_blocks = {}
 memory_access_functions = {}
