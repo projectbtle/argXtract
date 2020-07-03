@@ -58,6 +58,7 @@ class RegisterEvaluator:
         start_stack_pointer = \
             int(common_objs.application_vector_table['initial_sp'])
 
+        self.queue_called = False
         for start_point in start_points:
             # Initialise registers at the starting point.
             initialised_regs = {}
@@ -97,8 +98,7 @@ class RegisterEvaluator:
                 current_path,
                 null_registers
             )
-        
-        self.queue_handler()
+            self.queue_handler()
         print('UNHANDLED')
         print(self.unhandled)
         
@@ -241,7 +241,7 @@ class RegisterEvaluator:
             
             # Debug and trace messages.
             logging.debug('------------------------------------------')
-            logging.debug('memory: ' + self.print_memory(memory_map))
+            logging.trace('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
 
@@ -2373,7 +2373,8 @@ class RegisterEvaluator:
             )
         
         if src_memory_address == None:
-            null_registers[dst_operand] = {}
+            null_registers[dst_operand1] = {}
+            null_registers[dst_operand2] = {}
             logging.error('Null src address: ' + hex(ins_address))
             return (next_reg_values, memory_map, null_registers)
             
@@ -4557,6 +4558,9 @@ class RegisterEvaluator:
             
     def queue_handler(self):
         """Call queue handler as long as queue not empty and time available. """
+        if self.queue_called == True:
+            return
+        self.queue_called = True
         while ((self.instruction_queue) and (self.time_check()!=True)):
             self.handle_queue()
 
