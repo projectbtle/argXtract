@@ -124,7 +124,7 @@ class FirmwareDisassembler:
         )
 
         # Read in data from the Reset Handler.
-        self.analyse_data_regions_via_reset_handler()
+        self.identify_data_segment_via_reset_handler()
         
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
@@ -237,7 +237,7 @@ class FirmwareDisassembler:
             else:
                 continue
 
-    def analyse_data_regions_via_reset_handler(self):
+    def identify_data_segment_via_reset_handler(self):
         reset_handler_address = common_objs.application_vector_table['reset']
         address = reset_handler_address - 2
         max_address = address + 30
@@ -251,9 +251,19 @@ class FirmwareDisassembler:
             if insn == None:
                 continue
             
+            # If a self-targeting branch is encountered, we've probably
+            #  come to another interrupt handler.
+            if insn.id == ARM_INS_B:
+                if insn.cc == ARM_CC_AL:
+                    branch_target = insn.operands[0].value.imm
+                    if branch_target == address:
+                        break
+                        
             # If there's inline data, we've probably come to the end.
             if insn.id == ARM_INS_INVALID:
                 common_objs.disassembled_firmware[address]['is_data'] = True
+                break
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
                 break
                 
             if self.check_valid_pc_ldr(insn) != True:
