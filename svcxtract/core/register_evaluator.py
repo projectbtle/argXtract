@@ -58,7 +58,6 @@ class RegisterEvaluator:
         start_stack_pointer = \
             int(common_objs.application_vector_table['initial_sp'])
 
-        self.queue_called = False
         for start_point in start_points:
             # Initialise registers at the starting point.
             initialised_regs = {}
@@ -4558,9 +4557,6 @@ class RegisterEvaluator:
             
     def queue_handler(self):
         """Call queue handler as long as queue not empty and time available. """
-        if self.queue_called == True:
-            return
-        self.queue_called = True
         while ((self.instruction_queue) and (self.time_check()!=True)):
             self.handle_queue()
 
