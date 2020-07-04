@@ -860,7 +860,7 @@ class RegisterEvaluator:
                 + 'Address: '
                 + hex(branch_address)
             )
-            return # TODO: Handle this case.
+            return
         debug_msg = (
             'Table branch to ' 
             + hex(branch_address)
@@ -3964,7 +3964,6 @@ class RegisterEvaluator:
             value = '00' * num_bytes
         value = value.zfill(2*num_bytes)
 
-        # TODO: Big-endian option.
         for i in range(num_bytes):
             byte0 = (i*-2) - 1
             byte1 = (i*-2) - 2

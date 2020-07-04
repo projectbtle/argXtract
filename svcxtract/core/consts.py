@@ -38,7 +38,9 @@ AVT = {
     'mem_mgmt_fault': 0x0010,
     'bus_fault': 0x0014,
     'usage_fault': 0x0018,
-    'svc': 0x002C
+    'svc': 0x002C,
+    'pendsv': 0x0038,
+    'systick': 0x003C
 }
 
 # Register aliases.
