@@ -148,6 +148,7 @@ class FirmwareAnalyser:
         # Add output object.
         final_output['output'] = output_object['output']
         final_output['svcs'] = output_object['svcs']
+        final_output['unhandled'] = output_object['unhandled']
         return final_output
         
     def set_paths(self, process_id):
