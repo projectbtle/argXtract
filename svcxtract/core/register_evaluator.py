@@ -98,12 +98,16 @@ class RegisterEvaluator:
                 null_registers
             )
             self.queue_handler()
-        print('UNHANDLED')
-        print(self.unhandled)
         
         # Clear all files.
         self.clear_working_files()
-        return
+        unhandled_str = ''
+        for unhandled in self.unhandled:
+            if unhandled_str == '':
+                unhandled_str = unhandled
+            else:
+                unhandled_str = unhandled_str + ';' + unhandled
+        return unhandled_str
     
     def clear_working_files(self):
         for filename in os.listdir(common_paths.tmp_path):
@@ -158,8 +162,6 @@ class RegisterEvaluator:
             + hex(end_of_function_block)
             + ', counter: '
             + str(gc)
-            #+ ' and followed path: '
-            #+ current_path
         )
 
         # Start from the starting point within assembly,
@@ -247,17 +249,19 @@ class RegisterEvaluator:
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
-                should_execute_next_instruction = self.process_branch_instruction(
-                    register_object,
-                    memory_map,
-                    trace_obj,
-                    current_path,
-                    ins_address,
-                    condition_flags,
-                    branch_points,
-                    null_registers
-                )
-                
+                (executed_branch, should_execute_next_instruction) = \
+                    self.process_branch_instruction(
+                        register_object,
+                        memory_map,
+                        trace_obj,
+                        current_path,
+                        ins_address,
+                        condition_flags,
+                        branch_points,
+                        null_registers
+                    )
+                if ((opcode_id == ARM_INS_BL) and (executed_branch == False)):
+                    register_object[ARM_REG_R0] = '00000000'
                 if should_execute_next_instruction == True:
                     continue
                 else:
@@ -343,20 +347,28 @@ class RegisterEvaluator:
         # If branch_target is black-listed, don't proceed.
         # DO NOT return False.
         if branch_target in common_objs.blacklisted_functions:
-            return True
+            executed_branch = False
+            should_execute_next_instruction = True
+            return (executed_branch, should_execute_next_instruction)
             
         # We process certain functions differently.
-        if branch_target in common_objs.memory_access_functions:
-            mem_access_function = \
-                common_objs.memory_access_functions[branch_target]
-            func_type = mem_access_function['type']
+        if branch_target in common_objs.replace_functions:
+            replace_function = \
+                common_objs.replace_functions[branch_target]
+            func_type = replace_function['type']
             if func_type == consts.MEMSET:
                 memory_map = self.process_memset(
                     memory_map,
                     register_object,
-                    mem_access_function
+                    replace_function
                 )
-            return True
+            elif func_type == consts.UDIV:
+                register_object = self.process_software_udiv(
+                    register_object
+                )
+            executed_branch = True
+            should_execute_next_instruction = True
+            return (executed_branch, should_execute_next_instruction)
             
         # Check whether we execute the branch, based on conditionals.
         # If it's a conditional branch, then we use previous condition check.
@@ -389,8 +401,9 @@ class RegisterEvaluator:
         # Check for conditions where we would want to execute next instruction
         #  in the event we are NOT branching.
         if (should_branch == False):
+            executed_branch = False
             should_execute_next_instruction = True
-            return should_execute_next_instruction
+            return (executed_branch, should_execute_next_instruction)
             
         # From this point on within this function, all code relates to the 
         #  branch.
@@ -438,7 +451,8 @@ class RegisterEvaluator:
             null_registers
         )
         
-        return should_execute_next_instruction
+        executed_branch = True
+        return (executed_branch, should_execute_next_instruction)
 
     def check_should_branch(self, current_path, trace_obj, calling_address, 
                                 branch_target):
@@ -1084,7 +1098,7 @@ class RegisterEvaluator:
             
                 # The output of process_branch_instruction is a boolean,
                 #  indicating whether we should execute the next instruction.
-                _ = self.process_branch_instruction(
+                _, _ = self.process_branch_instruction(
                     next_reg_values,
                     memory_map,
                     trace_obj,
@@ -1288,6 +1302,22 @@ class RegisterEvaluator:
                 condition_flags,
                 null_registers
             )
+        elif instruction.id == ARM_INS_MLA:
+            (register_object, condition_flags, null_registers) = self.process_mla(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
+        elif instruction.id == ARM_INS_MLS:
+            (register_object, condition_flags, null_registers) = self.process_mls(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
         elif instruction.id in [ARM_INS_MOV, ARM_INS_MOVW]:
             (register_object, condition_flags, null_registers) = self.process_mov(
                 ins_address,
@@ -1348,8 +1378,24 @@ class RegisterEvaluator:
                 condition_flags,
                 null_registers
             )
+        elif instruction.id == ARM_INS_RBIT:
+            (register_object, null_registers) = self.process_rbit(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
         elif instruction.id == ARM_INS_REV:
             (register_object, null_registers) = self.process_rev(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
+        elif instruction.id == ARM_INS_REV16:
+            (register_object, null_registers) = self.process_rev16(
                 ins_address,
                 instruction,
                 register_object,
@@ -1427,6 +1473,22 @@ class RegisterEvaluator:
             )
         elif instruction.id in [ARM_INS_SXTB, ARM_INS_SXTH]:
             (register_object, null_registers) = self.process_sxt(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
+        elif instruction.id == ARM_INS_UBFX:
+            (register_object, null_registers) = self.process_ubfx(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
+        elif instruction.id == ARM_INS_UDIV:
+            (register_object, null_registers) = self.process_udiv(
                 ins_address,
                 instruction,
                 register_object,
@@ -2125,6 +2187,7 @@ class RegisterEvaluator:
             if common_objs.null_value_handling == consts.NULL_HANDLING_LOOSE:
                 address_type = self.get_address_type(address)
                 if ((address_type != consts.ADDRESS_FIRMWARE) 
+                        and (address_type != consts.ADDRESS_DATA) 
                         and (address_type != consts.ADDRESS_RAM)):
                     logging.debug(
                         'LDR source is unavailable. Register '
@@ -2548,13 +2611,119 @@ class RegisterEvaluator:
             )
         return (next_reg_values, condition_flags, null_registers)
         
+    def process_mla(self, ins_address, instruction, current_reg_values, 
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        operand1 = operands[1]
+        operand2 = operands[2]
+        accumulateop = operands[3]
+           
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [operand1.value.reg, operand2.value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+        
+        (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
+        if value1 == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, condition_flags, null_registers)
+        (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
+        if value2 == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, condition_flags, null_registers)
+        (accumulate, _) = self.get_src_reg_value(next_reg_values, accumulateop, 'int')
+        if accumulate == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, condition_flags, null_registers)
+
+        value1 = getattr(value1, "tolist", lambda: value1)()
+        value2 = getattr(value2, "tolist", lambda: value2)()
+        accumulate = getattr(accumulate, "tolist", lambda: accumulate)()
+        mul_value = value1 * value2
+        mul_value = mul_value + accumulate
+        mul_value = '{0:08x}'.format(mul_value)
+        mul_value = mul_value.zfill(8)
+        result = mul_value[-8:]
+
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            result
+        )
+        if ((instruction.update_flags == True) and (tainted == False)):
+            condition_flags = self.update_condition_flags(
+                condition_flags,
+                result
+            )
+        return (next_reg_values, condition_flags, null_registers)
+        
+    def process_mls(self, ins_address, instruction, current_reg_values, 
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, condition_flags, null_registers)
+        
+        operand1 = operands[1]
+        operand2 = operands[2]
+        accumulateop = operands[3]
+           
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [operand1.value.reg, operand2.value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+        
+        (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
+        if value1 == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, condition_flags, null_registers)
+        (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
+        if value2 == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, condition_flags, null_registers)
+        (accumulate, _) = self.get_src_reg_value(next_reg_values, accumulateop, 'int')
+        if accumulate == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, condition_flags, null_registers)
+
+        value1 = getattr(value1, "tolist", lambda: value1)()
+        value2 = getattr(value2, "tolist", lambda: value2)()
+        accumulate = getattr(accumulate, "tolist", lambda: accumulate)()
+        mul_value = value1 * value2
+        mul_value = accumulate - mul_value 
+        mul_value = '{0:08x}'.format(mul_value)
+        mul_value = mul_value.zfill(8)
+        result = mul_value[-8:]
+
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            result
+        )
+        return (next_reg_values, condition_flags, null_registers)
+        
     def process_mov(self, ins_address, instruction, current_reg_values, 
                             condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
         if len(operands) != 2:
             logging.error('More than 2 ops ' + instruction.op_str)
-            sys.exit(0)
             
         dst_operand = self.get_dst_operand(operands[0])
         if dst_operand == None: 
@@ -2647,7 +2816,6 @@ class RegisterEvaluator:
         operands = instruction.operands
         if len(operands) != 2:
             logging.error('More than 2 ops ' + instruction.op_str)
-            sys.exit(0)
             
         dst_operand = self.get_dst_operand(operands[0])
         if dst_operand == None: 
@@ -2906,7 +3074,7 @@ class RegisterEvaluator:
 
         return (next_reg_values, memory_map, null_registers)
         
-    def process_rev(self, ins_address, instruction, current_reg_values,
+    def process_rbit(self, ins_address, instruction, current_reg_values,
                             condition_flags, null_registers):
         next_reg_values = current_reg_values
         operands = instruction.operands
@@ -2930,15 +3098,94 @@ class RegisterEvaluator:
             return (next_reg_values, null_registers)
         
         # reversed_bits.
+        src_bits = self.get_binary_representation(src_value, 32)
+        reversed_bits = src_bits[::-1]
+            
+        reversed_bytes = self.convert_bits_to_type(reversed_bits, 'hex')
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            reversed_bytes
+        )
+        return (next_reg_values, null_registers)
+        
+    def process_rev(self, ins_address, instruction, current_reg_values,
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+            
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+        
+        (src_value, _) = self.get_src_reg_value(next_reg_values, operands[1], 'hex')
+        if src_value == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        
+        # reversed_bits.
         if len(src_value) != 8:
             logging.error(
                 'Reverse operand is not the correct length'
             )
+            src_value = src_value.zfill(8)
             
         reversed_bytes = src_value[6:8] \
                          + src_value[4:6] \
                          + src_value[2:4] \
                          + src_value[0:2]
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            reversed_bytes
+        )
+        return (next_reg_values, null_registers)
+        
+    def process_rev16(self, ins_address, instruction, current_reg_values,
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+            
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [operands[1].value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+        
+        (src_value, _) = self.get_src_reg_value(next_reg_values, operands[1], 'hex')
+        if src_value == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        
+        # reversed_bits.
+        if len(src_value) != 8:
+            logging.error(
+                'Reverse operand is not the correct length'
+            )
+            src_value = src_value.zfill(8)
+            
+        reversed_bytes = src_value[2:4] \
+                         + src_value[0:2] \
+                         + src_value[6:8] \
+                         + src_value[4:6] 
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3163,6 +3410,56 @@ class RegisterEvaluator:
                 overflow
             )
         return (next_reg_values, condition_flags, null_registers)
+        
+    def process_sbfx(self, ins_address, instruction, current_reg_values,
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        opcode_id = instruction.id
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [dst_operand, operands[1].value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+            
+        (src_value, _) = self.get_src_reg_value(
+            next_reg_values,
+            operands[1]
+        )
+        if src_value == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        
+        (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
+        (width, _) = self.get_src_reg_value(next_reg_values, operands[3], 'int')
+        src_bits = self.get_binary_representation(src_value, 32)
+        msb = lsb + width - 1
+        new_bits = src_bits[msb:lsb]
+        top_bit = new_bits[0]
+        if msb <= 31:
+            extended_bits = ''
+            for i in range(32):
+                extended_bits += top_bit
+            extended_bits += new_bits
+            new_bits = extended_bits[-32:]
+            
+        new_value = self.convert_bits_to_type(new_bits, 'hex')
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            new_value,
+            True
+        )
+        return (next_reg_values, null_registers)
         
     def process_stm(self, ins_address, instruction, current_reg_values, 
                         memory_map, condition_flags, null_registers):
@@ -3401,6 +3698,106 @@ class RegisterEvaluator:
         )
         return (next_reg_values, null_registers)
         
+    def process_ubfx(self, ins_address, instruction, current_reg_values,
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        opcode_id = instruction.id
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [dst_operand, operands[1].value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+            
+        (src_value, _) = self.get_src_reg_value(
+            next_reg_values,
+            operands[1]
+        )
+        if src_value == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        
+        (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
+        (width, _) = self.get_src_reg_value(next_reg_values, operands[3], 'int')
+        src_bits = self.get_binary_representation(src_value, 32)
+        msb = lsb + width - 1
+        new_bits = src_bits[msb:lsb]
+        if msb <= 31:
+            new_bits = new_bits.zfill(32)
+            
+        new_value = self.convert_bits_to_type(new_bits, 'hex')
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            new_value,
+            True
+        )
+        return (next_reg_values, null_registers)
+            
+    def process_udiv(self, ins_address, instruction, current_reg_values,
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        opcode_id = instruction.id
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        if len(operands) == 2:
+            numerator_operand = operands[0]
+            denominator_operand = operands[1]
+        else:
+            numerator_operand = operands[1]
+            denominator_operand = operands[2]
+            
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [numerator_operand.value.reg, denominator_operand.value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+            
+        (numerator, _) = self.get_src_reg_value(
+            next_reg_values, 
+            numerator_operand, 
+            'int'
+        )
+        if numerator == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        (denominator, _) = self.get_src_reg_value(
+            next_reg_values, 
+            denominator_operand, 
+            'int'
+        )
+        if denominator == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        if denominator == 0:
+            value = 0
+        else:
+            value = numerator//denominator
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            value,
+            True
+        )
+        return (next_reg_values, null_registers)
+            
     def process_uxt(self, ins_address, instruction, current_reg_values,
                             condition_flags, null_registers):
         next_reg_values = current_reg_values
@@ -3859,12 +4256,10 @@ class RegisterEvaluator:
         if (num_bytes == 4):
             if (address%4 != 0):
                 logging.error('Misaligned word.')
-                sys.exit(0)
             value = self.get_memory_word(memory_map, address, endian)
         elif (num_bytes == 2):
             if (address%2 != 0):
                 logging.error('Misaligned word.')
-                sys.exit(0)
             value = self.get_memory_halfword(memory_map, address, endian)
         elif (num_bytes == 1):
             if address not in memory_map:
@@ -3873,7 +4268,6 @@ class RegisterEvaluator:
                 value = memory_map[address]
         else:
             logging.error('Invalid number of bytes.')
-            sys.exit(0)
         value = self.convert_type(value, dtype)
         return value
         
@@ -3946,7 +4340,9 @@ class RegisterEvaluator:
             return registers
         
         value = self.convert_type(value, 'hex')
-        if force_word_length == True: value = value.zfill(8)
+        if force_word_length == True: 
+            value = value.zfill(8)
+            value = value[-8:]
         registers[address] = value
         return registers
         
@@ -4057,6 +4453,21 @@ class RegisterEvaluator:
             address = address + 4
             length = length - 4
         return memory_map
+        
+    def process_software_udiv(self, register_object):
+        numerator = self.convert_type(register_object[ARM_REG_R0], 'int')
+        denominator = self.convert_type(register_object[ARM_REG_R1], 'int')
+        if ((numerator == None) or (denominator == None)):
+            return register_object
+        if denominator == 0:
+            register_object[ARM_REG_R1] = self.convert_type(numerator, 'hex')
+            register_object[ARM_REG_R0] = '00000000'
+            return register_object
+        quotient = numerator//denominator
+        remainder = numerator%denominator
+        register_object[ARM_REG_R0] = self.convert_type(quotient, 'hex')
+        register_object[ARM_REG_R1] = self.convert_type(remainder, 'hex')
+        return register_object
         
     # =======================================================================  
     #-------------------------- Utility functions ---------------------------
