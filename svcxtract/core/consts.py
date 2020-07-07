@@ -4,8 +4,13 @@ from capstone.arm import *
 COMPILER_GCC = 'gcc'
 COMPILER_NON_GCC = 'non_gcc'
 
+# ARM architecture.
+ARMv6M = 'armv6m'
+ARMv7M = 'armv7m'
+
 # Functions.
 MEMSET = 'memset'
+UDIV = 'udiv'
 
 # Address types.
 ADDRESS_DATA = 'data'
