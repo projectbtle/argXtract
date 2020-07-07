@@ -255,12 +255,15 @@ class SVCXtract:
                 output = firmware_analyser.analyse_firmware(fw_file)
                 if output == None:
                     outfile.write(fw_file + ',None')
+                    outfile.flush()
                 # Write to file.
                 with open(outputfilename, 'w') as f: 
                     json.dump(output, f, indent=4)
                 outfile.write(fw_file + ',Completed,None')
+                outfile.flush()
             except Exception as e:
                 outfile.write(fw_file + ',Error,' + str(e))
+                outfile.flush()
                 
     def execute_multiple_processes(self):
         # We don't want long messages in parallel threads.
@@ -328,6 +331,7 @@ class SVCXtract:
             else:
                 error = 'None'
             outfile.write(filename + ',' + status + ',' + error + '\n')
+            outfile.flush()
             
             #Check if any processes have become zombies.
             if len(active_children()) < self.processes:
