@@ -15,6 +15,7 @@ null_value_handling = consts.NULL_HANDLING_NONE
 #========== File-specific variables =========
 
 compiler = consts.COMPILER_GCC
+arm_arch = consts.ARMv6M
 
 # Firmware breakdown.
 app_code_base = 0x00000000
@@ -31,7 +32,7 @@ disassembled_firmware = {}
 data_region = {}
 errored_instructions = []
 function_blocks = {}
-memory_access_functions = {}
+replace_functions = {}
 blacklisted_functions = []
 svc_calls = {}
 

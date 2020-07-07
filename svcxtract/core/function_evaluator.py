@@ -30,8 +30,10 @@ class FunctionEvaluator:
         # Identify function blocks.
         self.find_function_blocks()
         
-        # Identify important functions (like memset)
-        self.identify_memory_access_functions()
+        # Identify important functions (like memset),
+        #  which we will replace with equivalent functionality,
+        #  to reduce processing time.
+        self.identify_replace_functions()
         
         # Identify blacklisted blocks 
         #  (that should not be considered when tracing).
@@ -581,26 +583,36 @@ class FunctionEvaluator:
         return function_block_start_addresses
     
     #----------------- Find special functions ---------------------
-    def identify_memory_access_functions(self):
+    def identify_replace_functions(self):
         logging.info('Identifying pertinent functions.')
         (memset_address, reg_order, fixed_val) = \
             self.identify_memset()
         if memset_address != None:
-            common_objs.memory_access_functions[memset_address] = {
+            common_objs.replace_functions[memset_address] = {
                 'type': consts.MEMSET,
                 'pointer': reg_order[0],
                 'value': reg_order[1],
                 'length': reg_order[2],
                 'fixed_value': fixed_val
             }
+        udiv_address = self.identify_integer_udivision()
+        if udiv_address != None:
+            if udiv_address in common_objs.replace_functions:
+                logging.error(
+                    'Same address identified for another function as for '
+                    'udiv: '
+                    + hex(udiv_address)
+                )
+                return
+            common_objs.replace_functions[udiv_address] = {
+                'type': consts.UDIV
+            }
 
     def identify_memset(self):
         memset_address = None
         possible_memsets = []
-        for ins_address in common_objs.disassembled_firmware:
+        for ins_address in common_objs.function_blocks:
             if ins_address in common_objs.errored_instructions:
-                continue
-            if ins_address < common_objs.code_start_address:
                 continue
             if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
                 continue
@@ -620,26 +632,27 @@ class FunctionEvaluator:
             )
             if is_memset == True:
                 possible_memsets.append((ins_address, reg_order, fixed_value))
+
         if len(possible_memsets) > 1:
             possible_memsets = self.process_multiple_candidate_functions(
                 possible_memsets
             )
+        if len(possible_memsets) == 0:
+            return (None, None, None)
         if len(possible_memsets) > 1: 
             logging.warning('Multiple candidates for memset. Using None.')
             return (None, None, None)
-        elif len(possible_memsets) == 0:
-            return (None, None, None)
-        else:
-            memset_address = possible_memsets[0][0]
-            logging.info(
-                'Possible memset identified at ' 
-                + hex(memset_address)
-                + ' and memset_object: '
-                + str(possible_memsets[0])
-            )
-            return possible_memsets[0]
+        memset_address = possible_memsets[0][0]
+        logging.info(
+            'Possible memset identified at ' 
+            + hex(memset_address)
+            + ' and memset_object: '
+            + str(possible_memsets[0])
+        )
+        return possible_memsets[0]
             
     def process_multiple_candidate_functions(self, function_tuples):
+        logging.debug('Processing multiple memset candidates.')
         functions = []
         for function_tuple in function_tuples:
             functions.append(function_tuple[0])
@@ -732,6 +745,90 @@ class FunctionEvaluator:
                 break
         return (is_memset, original_registers, fixed_value)
         
+    def identify_integer_udivision(self):
+        if common_objs.arm_arch == consts.ARMv7M:
+            return None
+        possible_udivs = []
+        for ins_address in common_objs.function_blocks:
+            if ins_address in common_objs.errored_instructions:
+                continue
+            if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
+                continue
+            # udiv would be BL.
+            xrefs = common_objs.disassembled_firmware[ins_address]['xref_from']
+            bl_xrefs = []
+            for xref in xrefs:
+                insn_id = common_objs.disassembled_firmware[xref]['insn'].id
+                if insn_id == ARM_INS_BL:
+                    bl_xrefs.append(xref)
+            if len(bl_xrefs) < 1:
+                continue
+            start_address = ins_address
+            
+            is_udiv = self.check_udiv(start_address)
+            if is_udiv == True:
+                possible_udivs.append(start_address)
+        
+        if len(possible_udivs) == 0:
+            return None
+        if len(possible_udivs) > 1:
+            logging.info(
+                'Multiple possibilities for udiv. Using None.'
+            )
+            return None
+        udiv_address = possible_udivs[0]
+        logging.info(
+            'Possible udiv identified at '
+            + hex(udiv_address)
+        )
+        return udiv_address
+            
+    def check_udiv(self, start_address):
+        end_of_block = utils.id_function_block_end(start_address)
+        numerator = ARM_REG_R0
+        denominator = ARM_REG_R1
+        num_lsr = 0
+        address = start_address
+        while address <= end_of_block:
+            if ((address in common_objs.errored_instructions) 
+                    or (common_objs.disassembled_firmware[address]['is_data'] == True)):
+                address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
+                continue
+
+            insn = common_objs.disassembled_firmware[address]['insn']
+            # Instructions we don't expect to find.
+            if insn.id in [ARM_INS_LDM, ARM_INS_LDR, ARM_INS_LDREX, 
+                    ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH, 
+                    ARM_INS_LDRB, ARM_INS_LDRSB, ARM_INS_LDREXB, ARM_INS_LDRD,
+                    ARM_INS_STR, ARM_INS_STREX, ARM_INS_STRH, ARM_INS_STREXH, 
+                    ARM_INS_STRB, ARM_INS_STREXB, ARM_INS_STRD, ARM_INS_STM,
+                    ARM_INS_SVC, ARM_INS_AND]:
+                return False
+                
+            operands = insn.operands
+            if insn.id in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
+                if operands[1].value.reg == numerator:
+                    numerator = operands[0].value.reg
+                elif operands[1].value.reg == denominator:
+                    denominator = operands[0].value.reg
+            if insn.id == ARM_INS_LSR:
+                if len(operands) == 2:
+                    src_operand = operands[0]
+                else:
+                    src_operand = operands[1]
+                if src_operand.value.reg == numerator:
+                    num_lsr += 1
+            address = self.get_next_address(self.all_addresses, address)
+            if address == None: break
+        if num_lsr == 0:
+            return False
+        logging.debug(
+            'Function matches signature for udiv: '
+            + hex(start_address)
+        )
+        return True
+    
     #------------------ Blacklisted functions ----------------
     def populate_blacklist(self):
         logging.info('Populating function blacklist.')
