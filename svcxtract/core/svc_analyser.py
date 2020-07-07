@@ -34,6 +34,8 @@ class SvcAnalyser:
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
+            if ins_address in common_objs.errored_instructions:
+                continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
                 continue
             
@@ -268,10 +270,11 @@ class SvcAnalyser:
         combined_trace_object = self.combine_svc_traces(processing_object)
 
         # Get output from register trace.
-        self.reg_eval.estimate_reg_values_for_trace_object(
+        unhandled = self.reg_eval.estimate_reg_values_for_trace_object(
             combined_trace_object,
             self
         )
+        self.output_object['unhandled'] = unhandled
         # Process according to SVC definitions.
         return self.output_object
         
