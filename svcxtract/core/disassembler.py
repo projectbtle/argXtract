@@ -58,6 +58,9 @@ class FirmwareDisassembler:
             common_objs.disassembled_firmware
         )
         
+        # Estimate architecture.
+        self.test_arm_arch()
+        
     def disassemble_fw(self):
         logging.info(
             'Disassembling firmware using Capstone '
@@ -528,3 +531,19 @@ class FirmwareDisassembler:
                 last_good_instruction
             last_good_instruction = ins_address
         return disassembled_fw
+        
+    def test_arm_arch(self):
+        arch7m_ins = [ARM_INS_UDIV, ARM_INS_TBB, ARM_INS_TBH]
+        for ins_address in common_objs.disassembled_firmware:
+            if ins_address < common_objs.code_start_address:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['insn'] == None:
+                continue
+            if ins_address in common_objs.errored_instructions:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['insn'].id == 0:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['insn'].id in arch7m_ins:
+                common_objs.arm_arch = consts.ARMv7M
