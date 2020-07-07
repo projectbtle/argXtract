@@ -200,7 +200,7 @@ class FirmwareAnalyser:
         common_objs.disassembled_firmware = {}
         common_objs.errored_instructions = []
         common_objs.function_blocks = {}
-        common_objs.memory_access_functions = {}
+        common_objs.replace_functions = {}
         common_objs.blacklisted_functions = []
         common_objs.svc_calls = {}
         # Tracing objects.
