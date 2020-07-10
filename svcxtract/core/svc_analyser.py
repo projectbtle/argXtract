@@ -82,6 +82,7 @@ class SvcAnalyser:
     def find_all_svc_chains(self, svc_call, store=True):
         """Find all call chains tracing backwards from an SVC call."""
         all_svc_chains = []
+        fblock_list = []
         
         logging.debug('Looking for SVC chains for SVC num: ' + hex(svc_call))
         
@@ -91,7 +92,7 @@ class SvcAnalyser:
                 + hex(svc_call)
                 + ' not present in SVC object.'
             )
-            return all_svc_chains
+            return (all_svc_chains, fblock_list)
 
         # First get all instructions that make SVC calls.
         # With GCC, this will be instruction that calls a function that 
@@ -106,17 +107,19 @@ class SvcAnalyser:
             function_block = utils.id_function_block_for_instruction(
                 xref_from_svc
             )
+            if function_block not in fblock_list:
+                fblock_list.append(function_block)
             svcxref_functionblock = str(xref_from_svc) + ':' + str(function_block)
             starting_points.append(svcxref_functionblock)
         starting_points = list(set(starting_points))
         
         # For each call to SVC, get the call chain.
         for starting_point in starting_points:
-            self.get_chain(starting_point, '', all_svc_chains)
+            self.get_chain(starting_point, '', all_svc_chains, fblock_list)
         
         if len(all_svc_chains) == 0:
             logging.info('No SVC chains identified.')
-            return all_svc_chains
+            return (all_svc_chains, fblock_list)
             
         all_svc_chains.sort()
         
@@ -128,9 +131,9 @@ class SvcAnalyser:
         if store == True:
             common_objs.svc_chains = all_svc_chains
         else:
-            return all_svc_chains
+            return (all_svc_chains, fblock_list)
     
-    def get_chain(self, xref_fblock, chain, output_list):
+    def get_chain(self, xref_fblock, chain, output_list, fblock_list):
         if chain == '':
             chain = xref_fblock
         else:
@@ -160,6 +163,9 @@ class SvcAnalyser:
             if function_block == func_block:
                 continue
                 
+            if function_block not in fblock_list:
+                fblock_list.append(function_block)
+                
             xref_functionblock = str(xref_from) + ':' + str(function_block)
             
             # If this item is already in chain, then we would just be looping 
@@ -174,7 +180,7 @@ class SvcAnalyser:
         
         # Recursively check.
         for caller in callers:
-            self.get_chain(caller, chain, output_list)
+            self.get_chain(caller, chain, output_list, fblock_list)
            
     def find_starting_point_from_chain(self, chain):
         start_point = chain.split(',')[-1]
@@ -252,6 +258,7 @@ class SvcAnalyser:
             return
 
         processing_object = {}
+        all_fblocks = []
         for svc_file in svc_list:
             svc_name = (os.path.basename(svc_file)).replace('.json', '')
             # Get the SVC identifier.
@@ -259,16 +266,23 @@ class SvcAnalyser:
             if svc_num == None:
                 continue
             # Get call chains.
-            svc_chains = self.find_all_svc_chains(
+            (svc_chains, fblocks) = self.find_all_svc_chains(
                 svc_call=int(svc_num, 16),
                 store=False
             )
             if len(svc_chains) > 0:
                 self.output_object['svcs'].append(svc_name)
             processing_object[svc_name] = svc_chains
+            for fblock in fblocks:
+                if fblock not in all_fblocks:
+                    all_fblocks.append(fblock)
         # Combine the outputs, to reduce trace time.
         combined_trace_object = self.combine_svc_traces(processing_object)
-
+        
+        # Save the function blocks in common_objs, so that we don't 
+        #  accidentally blacklist them.
+        common_objs.svc_function_blocks = all_fblocks
+        
         # Get output from register trace.
         unhandled = self.reg_eval.estimate_reg_values_for_trace_object(
             combined_trace_object,

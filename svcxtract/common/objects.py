@@ -39,4 +39,5 @@ svc_calls = {}
 
 # Tracing objects.
 svc_chains = []
+svc_function_blocks = []
 potential_start_points = []

@@ -110,6 +110,7 @@ class RegisterEvaluator:
         return unhandled_str
     
     def clear_working_files(self):
+        logging.debug('Cleaning up...')
         for filename in os.listdir(common_paths.tmp_path):
             file_path = os.path.join(common_paths.tmp_path, filename)
             try:
@@ -342,14 +343,15 @@ class RegisterEvaluator:
                 'int'
             )
             # Do we need further processing for ARM/Thumb switch?
-            if branch_target % 2 == 1:
-                branch_target = branch_target - 1
+            if branch_target != None:
+                if branch_target % 2 == 1:
+                    branch_target = branch_target - 1
         elif opcode_id in [ARM_INS_CBZ, ARM_INS_CBNZ]:
             branch_target = operands[1].value.imm
         
         # If branch_target is black-listed, don't proceed.
-        # DO NOT return False.
-        if branch_target in common_objs.blacklisted_functions:
+        if ((branch_target in common_objs.blacklisted_functions) 
+                and (branch_target not in common_objs.svc_function_blocks)):
             executed_branch = False
             should_execute_next_instruction = True
             return (executed_branch, should_execute_next_instruction)
@@ -509,7 +511,8 @@ class RegisterEvaluator:
         logging.debug('Target function block: ' + hex(target_function_block))
         # If the target contains a perpetual self-loop, 
         #  it will have been blacklisted.
-        if target_function_block in common_objs.blacklisted_functions:
+        if ((target_function_block in common_objs.blacklisted_functions)
+                and (target_function_block not in common_objs.svc_function_blocks)):
             logging.debug('Target function block has been blacklisted.')
             return (False, None)
         
@@ -2249,8 +2252,9 @@ class RegisterEvaluator:
             
             if operand == ARM_REG_PC:
                 pc_target = reg_value
-                if pc_target % 2 == 1:
-                    pc_target = pc_target - 1
+                if pc_target != None:
+                    if pc_target % 2 == 1:
+                        pc_target = pc_target - 1
                 logging.debug('PC branch to ' + str(pc_target))
                 (should_branch, new_path) = self.check_should_branch(
                     current_path,
@@ -2319,8 +2323,9 @@ class RegisterEvaluator:
         # If dst_operand is PC, then it causes branch.
         if dst_operand == ARM_REG_PC:
             pc_target = self.get_register_bytes(next_reg_values, dst_operand, 'int')
-            if pc_target % 2 == 1:
-                pc_target = pc_target -1
+            if pc_target != None:
+                if pc_target % 2 == 1:
+                    pc_target = pc_target -1
             logging.debug('PC branch to ' + str(pc_target))
             (should_branch, new_path) = self.check_should_branch(
                 current_path,
@@ -3035,8 +3040,9 @@ class RegisterEvaluator:
         last_register = operands[-1].value.reg
         if last_register == ARM_REG_PC:
             pc_target = self.get_register_bytes(next_reg_values, last_register, 'int')
-            if pc_target % 2 == 1:
-                pc_target = pc_target - 1
+            if pc_target != None:
+                if pc_target % 2 == 1:
+                    pc_target = pc_target - 1
             logging.debug('Returning to ' + str(pc_target) + ' (POP PC)')
             # Since POP is essentially returning, we needn't do a branch check?
             # We need to get a revised trace_obj.
@@ -4729,6 +4735,8 @@ class RegisterEvaluator:
         """
         if shift == 0:
             return (value, 0)
+        if shift > 31:
+            return (None, 0)
         bit_length = self.get_bit_length(value)
         bits = self.get_binary_representation(value, bit_length)
         extended_bits = bits
@@ -4751,6 +4759,8 @@ class RegisterEvaluator:
         """
         if shift == 0:
             return (value, 0)
+        if shift > 32:
+            return (None, 0)
         bit_length = self.get_bit_length(value)
         bits = self.get_binary_representation(value, bit_length)
         extended_bits = bits
@@ -4773,6 +4783,8 @@ class RegisterEvaluator:
         """
         if shift == 0:
             return (value, 0)
+        if shift > 32:
+            return (None, 0)
         bit_length = self.get_bit_length(value)
         bits = self.get_binary_representation(value, bit_length)
         leftmost_bit = bits[0]
@@ -4796,6 +4808,8 @@ class RegisterEvaluator:
         """
         if shift == 0:
             return (value, 0)
+        if shift > 31:
+            return (None, 0)
         bit_length = self.get_bit_length(value)
         bits = self.get_binary_representation(value, bit_length)
         shifted_bits = bits
