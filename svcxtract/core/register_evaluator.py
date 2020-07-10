@@ -209,7 +209,7 @@ class RegisterEvaluator:
                     + '\nregisters: '
                     + self.print_memory(register_object)
                 )
-                
+
                 # Process the output and get updated memory map.
                 memory_map = self.svc_analyser.process_trace_output(
                     {svc_name:out_obj}
@@ -341,6 +341,9 @@ class RegisterEvaluator:
                 branch_register,
                 'int'
             )
+            # Do we need further processing for ARM/Thumb switch?
+            if branch_target % 2 == 1:
+                branch_target = branch_target - 1
         elif opcode_id in [ARM_INS_CBZ, ARM_INS_CBNZ]:
             branch_target = operands[1].value.imm
         
@@ -474,7 +477,7 @@ class RegisterEvaluator:
         
         # ----------- Do basic checks first --------------
         
-        # If null target not in f/w addresses, we can't proceed with branch.
+        # If target not in f/w addresses, we can't proceed with branch.
         if (branch_target not in self.all_addresses):
             logging.warning(
                 'Branch target '
@@ -518,9 +521,9 @@ class RegisterEvaluator:
                 return (False, None)
             # We also want to avoid bl to anything other than what is in 
             #  trace object, IF the caller is the reset handler.
-            elif calling_address not in trace_obj['branch_or_end_points']:
-                logging.debug('Avoiding external branches from Reset Handler.')
-                return (False, None)
+            #elif calling_address not in trace_obj['branch_or_end_points']:
+            #    logging.debug('Avoiding external branches from Reset Handler.')
+            #    return (False, None)
             
         # Check if path already traced.
         (already_traced, new_path) = self.check_already_traced(
@@ -558,7 +561,7 @@ class RegisterEvaluator:
                     return (False, None)
 
         logging.debug(
-            'Path not previously taken. Continuing with counter: '  
+            'Branching with counter: '  
             + str(self.global_counter)
         )
         return (True, new_path)
@@ -606,6 +609,10 @@ class RegisterEvaluator:
         return is_branch_condition_satisfied
         
     def check_condition_satisfied(self, condition, flags):
+        # To bypass conditional checks, we simply return None.
+        # This forces the conditional branch to execute both paths.
+        if common_objs.bypass_all_conditional_checks == True:
+            return None
         is_condition_satisfied = None
         if condition == ARM_CC_EQ:
             if flags['z'] == None:
@@ -2241,7 +2248,9 @@ class RegisterEvaluator:
             address = address + 4
             
             if operand == ARM_REG_PC:
-                pc_target = [dst_operand]
+                pc_target = reg_value
+                if pc_target % 2 == 1:
+                    pc_target = pc_target - 1
                 logging.debug('PC branch to ' + str(pc_target))
                 (should_branch, new_path) = self.check_should_branch(
                     current_path,
@@ -2310,6 +2319,8 @@ class RegisterEvaluator:
         # If dst_operand is PC, then it causes branch.
         if dst_operand == ARM_REG_PC:
             pc_target = self.get_register_bytes(next_reg_values, dst_operand, 'int')
+            if pc_target % 2 == 1:
+                pc_target = pc_target -1
             logging.debug('PC branch to ' + str(pc_target))
             (should_branch, new_path) = self.check_should_branch(
                 current_path,
@@ -3024,6 +3035,8 @@ class RegisterEvaluator:
         last_register = operands[-1].value.reg
         if last_register == ARM_REG_PC:
             pc_target = self.get_register_bytes(next_reg_values, last_register, 'int')
+            if pc_target % 2 == 1:
+                pc_target = pc_target - 1
             logging.debug('Returning to ' + str(pc_target) + ' (POP PC)')
             # Since POP is essentially returning, we needn't do a branch check?
             # We need to get a revised trace_obj.

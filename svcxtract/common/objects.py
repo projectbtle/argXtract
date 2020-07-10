@@ -11,6 +11,7 @@ endian = 'little'
 allow_loops = True
 max_call_depth = 1
 null_value_handling = consts.NULL_HANDLING_NONE
+bypass_all_conditional_checks = False
 
 #========== File-specific variables =========
 

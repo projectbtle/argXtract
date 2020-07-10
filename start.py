@@ -15,6 +15,7 @@ class SVCXtract:
     def __init__(self):
         self.vendor = None
         self.processes = 1
+        self.bypass = False
         self.max_time = common_objs.max_time
         self.max_call_depth = common_objs.max_call_depth
         self.null_handling = common_objs.null_value_handling
@@ -71,6 +72,12 @@ class SVCXtract:
                    + 'i (info), '
                    + 'd (debug), '
                    + 't (trace).'
+        )
+        self.argparser.add_argument(
+            '-b',
+            '--bypass',
+            action = 'store_true',
+            help = 'bypass all conditional checks.'
         )
         self.argparser.add_argument(
             '-t',
@@ -199,6 +206,9 @@ class SVCXtract:
         if args.null:
             self.null_handling = args.null
             
+        if args.bypass:
+            self.bypass = True
+            
     def start_analysis(self):
         # Banner.
         print(
@@ -222,6 +232,11 @@ class SVCXtract:
             sleep(2)
             os.mkdir('tmp')
         
+        # Create output folder.
+        if (not (os.path.isdir('output'))):
+            logging.info('Creating output directory.')
+            os.mkdir('output')
+            
         if self.processes == 1:
             self.execute_single_process()
         else:
@@ -238,6 +253,7 @@ class SVCXtract:
             self.max_call_depth,
             self.loglevel,
             self.null_handling,
+            self.bypass,
             0
         )
         outfile = open('status.csv', 'w')
@@ -292,7 +308,8 @@ class SVCXtract:
                 self.max_time,
                 self.max_call_depth,
                 self.loglevel,
-                self.null_handling
+                self.null_handling,
+                self.bypass
             )
             worker = Process(
                 target=workerx.main,
@@ -344,7 +361,8 @@ class SVCXtract:
                             self.max_time,
                             self.max_call_depth,
                             self.loglevel,
-                            self.null_handling
+                            self.null_handling,
+                            self.bypass
                         )
                         worker = Process(
                             target=workerx.main, 
@@ -370,8 +388,10 @@ class SVCXtract:
             
 
 class SVCXtractWorker:
-    def __init__(self, vendor, max_time, max_call_depth, loglevel, null_handling):
+    def __init__(self, vendor, max_time, max_call_depth, loglevel, 
+            null_handling, bypass):
         self.vendor = vendor
+        self.bypass = bypass
         self.max_time = max_time
         self.max_call_depth = max_call_depth
         self.loglevel = loglevel
@@ -385,6 +405,7 @@ class SVCXtractWorker:
             self.max_call_depth,
             self.loglevel,
             self.null_handling,
+            self.bypass,
             process_id
         )
         
