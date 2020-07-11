@@ -718,6 +718,9 @@ class RegisterEvaluator:
         return is_condition_satisfied
     
     def update_condition_flags(self, condition_flags, result, carry=None, overflow=None):
+        if result == None:
+            condition_flags = self.initialise_condition_flags()
+            return condition_flags
         if carry != None:
             condition_flags['c'] = carry
         if overflow != None:
@@ -1823,7 +1826,8 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
-            
+        if result == None: 
+            null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -2564,6 +2568,8 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.logical_shift_left(src_value, shift_value)
+        if result == None: 
+            null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -2614,6 +2620,8 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.logical_shift_right(src_value, shift_value)
+        if result == None: 
+            null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -3250,6 +3258,8 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
             
         (result, carry) = self.rotate_right(src_value, shift_value)
+        if result == None: 
+            null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
