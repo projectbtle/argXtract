@@ -797,6 +797,7 @@ class FunctionEvaluator:
                 continue
 
             insn = common_objs.disassembled_firmware[address]['insn']
+
             # Instructions we don't expect to find.
             if insn.id in [ARM_INS_LDM, ARM_INS_LDR, ARM_INS_LDREX, 
                     ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH, 

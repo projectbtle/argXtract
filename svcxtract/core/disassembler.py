@@ -138,6 +138,9 @@ class FirmwareDisassembler:
 
             # If ID is 0, then it may mean inline data.
             if insn.id == ARM_INS_INVALID:
+                if ('byte' in insn.mnemonic):
+                    common_objs.errored_instructions.append(ins_address)
+                    continue
                 common_objs.disassembled_firmware[ins_address]['is_data'] = True
                 continue
    
@@ -264,6 +267,8 @@ class FirmwareDisassembler:
                         
             # If there's inline data, we've probably come to the end.
             if insn.id == ARM_INS_INVALID:
+                if ('byte' in insn.mnemonic):
+                    continue
                 common_objs.disassembled_firmware[address]['is_data'] = True
                 break
             if common_objs.disassembled_firmware[address]['is_data'] == True:

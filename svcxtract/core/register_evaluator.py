@@ -740,7 +740,7 @@ class RegisterEvaluator:
         address_object = common_objs.disassembled_firmware[address]
         if address_object['is_data'] == True:
             return True
-        if address_object['insn'].id == ARM_INS_NOP:
+        if address_object['insn'].id in [ARM_INS_NOP, ARM_INS_INVALID]:
             return True
         if address_object['insn'].id in [ARM_INS_MOV, ARM_INS_MOVW]:
             operands = address_object['insn'].operands

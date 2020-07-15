@@ -189,6 +189,8 @@ class FirmwareAnalyser:
         
         # Variables.
         common_objs.compiler = consts.COMPILER_GCC
+        common_objs.arm_arch = consts.ARMv6M
+        
         # Firmware breakdown.
         common_objs.app_code_base = 0x00000000
         common_objs.disassembly_start_address = 0x00000000
@@ -201,6 +203,7 @@ class FirmwareAnalyser:
         common_objs.svc_set = {}
         common_objs.core_bytes = None
         common_objs.disassembled_firmware = {}
+        common_objs.data_region = {}
         common_objs.errored_instructions = []
         common_objs.function_blocks = {}
         common_objs.replace_functions = {}
@@ -208,6 +211,7 @@ class FirmwareAnalyser:
         common_objs.svc_calls = {}
         # Tracing objects.
         common_objs.svc_chains = []
+        common_objs.svc_function_blocks = []
         common_objs.potential_start_points = []
         # Chipset-specific reset.
         self.chipset_analyser.reset()
