@@ -2259,33 +2259,24 @@ class RegisterEvaluator:
                 if pc_target != None:
                     if pc_target % 2 == 1:
                         pc_target = pc_target - 1
-                logging.debug('PC branch to ' + str(pc_target))
-                (should_branch, new_path) = self.check_should_branch(
-                    current_path,
-                    trace_obj,
-                    ins_address,
-                    pc_target
-                )
-                
+                logging.debug('PC branch to ' + hex(pc_target))
                 trace_obj = self.get_return_trace_obj(
                     trace_obj,
                     pc_target
                 )
                 
-                if should_branch == True:
-                    self.add_to_trace_queue(
-                        ins_address,
-                        pc_target,
-                        next_reg_values,
-                        memory_map,
-                        condition_flags,
-                        trace_obj,
-                        new_path,
-                        null_registers
-                    )
-                    return(None, None, None)
-                else:
-                    return (next_reg_values, memory_map, null_registers)
+                # Always follow branch?
+                self.add_to_trace_queue(
+                    ins_address,
+                    pc_target,
+                    next_reg_values,
+                    memory_map,
+                    condition_flags,
+                    trace_obj,
+                    current_path,
+                    null_registers
+                )
+                return(None, None, None)
                 
         # Update base register if needed.
         if instruction.writeback:
@@ -2330,33 +2321,23 @@ class RegisterEvaluator:
             if pc_target != None:
                 if pc_target % 2 == 1:
                     pc_target = pc_target -1
-            logging.debug('PC branch to ' + str(pc_target))
-            (should_branch, new_path) = self.check_should_branch(
-                current_path,
-                trace_obj,
-                ins_address,
-                pc_target
-            )
-            
+            logging.debug('PC branch to ' + hex(pc_target))
             trace_obj = self.get_return_trace_obj(
                 trace_obj,
                 pc_target
             )
             
-            if should_branch == True:
-                self.add_to_trace_queue(
-                    ins_address,
-                    pc_target,
-                    next_reg_values,
-                    memory_map,
-                    condition_flags,
-                    trace_obj,
-                    new_path,
-                    null_registers
-                )
-                return(None, None, null_registers)
-            else:
-                return (next_reg_values, memory_map, null_registers)
+            self.add_to_trace_queue(
+                ins_address,
+                pc_target,
+                next_reg_values,
+                memory_map,
+                condition_flags,
+                trace_obj,
+                current_path,
+                null_registers
+            )
+            return(None, None, null_registers)
             
         logging.debug(
             'LDR address: ' + hex(src_memory_address)
