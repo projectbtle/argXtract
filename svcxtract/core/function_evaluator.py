@@ -68,18 +68,11 @@ class FunctionEvaluator:
         function_block_start_addresses.sort()
         
         # Step 2.
-        function_block_start_addresses = self.check_opcodes_for_fb_start(
+        function_block_start_addresses = self.check_for_function_exit_ins(
             function_block_start_addresses
         )
         function_block_start_addresses.sort()
-        
-        # Step 3.
-        # Prune the function blocks.
-        function_block_start_addresses = self.prune_function_blocks(
-            function_block_start_addresses
-        )
-        function_block_start_addresses.sort()
-        
+
         # Create function block object.
         function_blocks = {}
         for idx, fb_start_address in enumerate(function_block_start_addresses):
@@ -217,7 +210,7 @@ class FunctionEvaluator:
         return function_block_start_addresses
  
     def check_branch_tos(self, function_block_start_addresses):
-        certainties = ['high', 'med', 'low']
+        certainties = ['high', 'med']
         for certainty in certainties:
             function_block_start_addresses = \
                 self.check_branch_tos_at_certainty_level(
@@ -279,12 +272,6 @@ class FunctionEvaluator:
                         common_objs.disassembled_firmware,
                         branch_address
                     )
-            elif certainty_level == 'low':
-                is_candidate = self.check_fb_candidate_low_certainty(
-                        common_objs.disassembled_firmware,
-                        branch_address,
-                        ins_address
-                    )
                 
             if is_candidate != True:
                 continue
@@ -305,6 +292,8 @@ class FunctionEvaluator:
         return function_block_start_addresses
 
     def check_fb_candidate_high_certainty(self, disassembled_fw, branch_address):
+        if branch_address in common_objs.errored_instructions:
+            return False
         if disassembled_fw[branch_address]['is_data'] == True:
             return False
             
@@ -326,6 +315,8 @@ class FunctionEvaluator:
         for i in list_to_iterate:
             if (branch_address + i) not in disassembled_fw:
                 continue
+            if (branch_address + i) in common_objs.errored_instructions:
+                continue
             if disassembled_fw[branch_address + i]['is_data'] == True:
                 continue
                 
@@ -339,148 +330,147 @@ class FunctionEvaluator:
                     return True
         return False
         
-    def check_fb_candidate_low_certainty(self, disassembled_fw, branch_address,
-                                            ins_address):
-        # If the preceding instruction is "pop {pc}" or "bx", then it may be
-        #  the end of a function.
-        
-        # If one of the preceding 3 instructions are nops, bx lr, pop {pc},
-        #  data or errors, then it may signify the end of a function (in GCC)?
-        # However, if all instructions between the branch instruction
-        #  and its target are nops or data, then do not assume it to be 
-        #  a function block start.
-        if ins_address < branch_address:
-            if 'last_insn_address' not in disassembled_fw[branch_address]:
-                return False
-            last_ins_for_target = \
-                disassembled_fw[branch_address]['last_insn_address']
-            if last_ins_for_target == ins_address:
-                return False
-                
-        nop_error_data_count = 0
-        list_to_iterate = [2, 4, 6]
-        append_counter = 0
-        for j in list_to_iterate:
-            # If the address we're looking for doesn't exist,
-            #  add a new value to list.
-            if (branch_address - j) not in disassembled_fw:
-                if append_counter < 3:
-                    list_to_iterate.append(list_to_iterate[-1] + 2)
-                    append_counter += 1
-                continue
-            
-            # If preceding instruction is data, then it MAY signify end of FB.
-            if disassembled_fw[branch_address - j]['is_data'] == True:
-                nop_error_data_count += 1
-                continue
-              
-            # If preceding instruction is "bx lr", then it may signify end of FB.
-            if disassembled_fw[branch_address - j]['insn'].id == ARM_INS_BX:
-                operands = disassembled_fw[branch_address - j]['insn'].operands
-                final_operand = operands[-1]
-                if final_operand.value.reg == ARM_REG_LR:
-                    nop_error_data_count += 1
-                    continue
-                    
-            # If preceding instruction is "pop {pc}", then it may signify 
-            #  end of FB.
-            if disassembled_fw[branch_address - j]['insn'].id == ARM_INS_POP:
-                operands = disassembled_fw[branch_address - j]['insn'].operands
-                final_operand = operands[-1]
-                if final_operand.value.reg == ARM_REG_PC:
-                    nop_error_data_count += 1
-                    continue
-                        
-            # If preceding instruction is skipdata, then it MAY signify end of FB. 
-            if (disassembled_fw[branch_address - j]['insn'].id) == 0:
-                nop_error_data_count += 1
-                continue
-               
-            # If preceding instruction is nop/error, then it MAY signify end of FB.                
-            is_nop_or_error = self.check_for_nop_or_error(
-                branch_address - j,
-                disassembled_fw[branch_address - j]['insn'].id,
-                disassembled_fw[branch_address - j]['insn'].operands
-            )
-            if is_nop_or_error == True:
-                nop_error_data_count += 1
-        if nop_error_data_count > 2:
-            return True
-        return False
-        
     def check_for_nop_or_error(self, address, opcode, operands):
-        # If we have mov with the same src and dst regsiters, then it's a nop.
-        if opcode == ARM_INS_NOP:
+        if self.check_for_nop(opcode, operands) == True:
             return True
-            
-        if opcode in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
-            if len(operands) == 2:
-                if operands[0].value.reg == operands[1].value.reg:
-                    return True
                     
         if address in common_objs.errored_instructions:
             return True
 
         return False
         
-    def check_opcodes_for_fb_start(self, function_block_start_addresses):
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address in common_objs.errored_instructions:
-                continue
-            if ins_address < common_objs.code_start_address:
-                continue
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
-                continue
-            insn = common_objs.disassembled_firmware[ins_address]['insn']
-            opcode_id = insn.id
-            is_candidate = False
-            if (opcode_id == ARM_INS_PUSH):
-                is_candidate = True
-            if (opcode_id == ARM_INS_SUB):
-                ops = insn.operands
-                reg = ops[0].value.reg
-                if reg == ARM_REG_SP:
-                    is_candidate = True
-            if is_candidate != True:                
-                continue
-                
-            if ins_address in function_block_start_addresses:
-                continue
-                
-            fb_address = ins_address
-            
-            address = ins_address
-            for i in range(6):
-                prev_address = self.get_previous_address(
-                    self.all_addresses,
-                    address
+    def check_for_nop(self, opcode, operands):
+        if opcode == ARM_INS_NOP:
+            return True
+        if opcode in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
+            if len(operands) == 2:
+                if operands[0].value.reg == operands[1].value.reg:
+                    return True
+        return False
+    
+    def check_for_function_exit_ins(self, function_block_start_addresses):
+        num_functions = len(function_block_start_addresses)
+        new_function_block_start_addresses = []
+        for idx, function_start in enumerate(function_block_start_addresses):
+            fblock_start = function_start
+            if idx == (num_functions-1):
+                current_fblock_end = self.all_addresses[-1]
+            else:
+                all_address_index = self.all_addresses.index(
+                    function_block_start_addresses[idx+1]
                 )
-                if common_objs.disassembled_firmware[prev_address]['is_data'] == True:
-                    if address == ins_address: break
-                    fb_address = address
-                    logging.debug(
-                        'Favouring ' 
-                        + hex(fb_address) 
-                        + ' over '
-                        + hex(ins_address)
-                        + ' due to proximity of inline data.'
-                    )
-                    break
-                address = prev_address
-                
-            if fb_address in function_block_start_addresses:
-                continue
-            
-            preexists = self.check_preexisting_block(
-                function_block_start_addresses,
-                fb_address,
-                boundary=26
+                current_fblock_end = self.all_addresses[all_address_index-1]
+            if (current_fblock_end-fblock_start) > 2500:
+                new_function_block_start_addresses.append(fblock_start)
+                return new_function_block_start_addresses
+            new_function_blocks = self.analyse_function_block_for_exit_ins(
+                fblock_start,
+                current_fblock_end,
+                [fblock_start]
             )
-            if preexists == False:
-                function_block_start_addresses.append(fb_address)
-            
-        return function_block_start_addresses
+            for function_block in new_function_blocks:
+                if function_block not in new_function_block_start_addresses:
+                    new_function_block_start_addresses.append(function_block)
+        return new_function_block_start_addresses
         
+    def analyse_function_block_for_exit_ins(self, start, end, flist):
+        address = start
+        possible_endpoints = []
+        branches = {}
+        while address <= end:
+            if address in common_objs.errored_instructions:
+                address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
+                continue
+            fw_bytes = common_objs.disassembled_firmware[address]
+            
+            # If we've got to a point that is data, then there must be
+            # a way to skip over it (within a function.
+            potential_end = False
+            if fw_bytes['is_data'] == True:
+                potential_end = True
+            else:
+                # Logical exit points for a function are bx and pop-pc.
+                # Again, within a function, there must be a way to skip over them.
+                insn = fw_bytes['insn']
+                operands = insn.operands
+                is_valid_exit = self.check_is_valid_exit(insn)
+                if is_valid_exit == True:
+                    potential_end = True
+                    
+            if potential_end == True:
+                skip_end = False
+                for branch_pt in branches:
+                    target = branches[branch_pt]
+                    if target > address:
+                        skip_end = True
+                        break
+                if skip_end == True:
+                    address = self.get_next_address(self.all_addresses, address)
+                    if address == None: break
+                    continue
+                    
+                next_ins = self.get_next_address(self.all_addresses, address)
+                next_ins = self.get_valid_next_start(next_ins, end)
+                if next_ins == None: break
+                if next_ins > end:
+                    break
+                if (next_ins not in flist):
+                    flist.append(next_ins)
+                flist = self.analyse_function_block_for_exit_ins(
+                    next_ins,
+                    end, 
+                    flist
+                )
+                break
+                
+            # Look at all the branch instructions.
+            if insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
+                if insn.id == ARM_INS_B:
+                    branch_target = operands[0].value.imm
+                else:
+                    branch_target = operands[1].value.imm
+                if ((branch_target <= end) and (branch_target not in branches)):
+                    branches[address] = branch_target
+            
+            # Analyse next instruction.
+            address = self.get_next_address(self.all_addresses, address)
+            if address == None: break
+            continue
+
+        return flist
+        
+    def get_valid_next_start(self, address, end):
+        start = address            
+        while address <= end:
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
+                address = self.get_next_address(self.all_addresses, address)
+                start = address
+                if address == None:
+                    break
+                continue
+            insn = common_objs.disassembled_firmware[address]['insn']
+            if insn.id == ARM_INS_INVALID:
+                break
+            if self.check_for_nop(insn.id, insn.operands) == True:
+                address = self.get_next_address(self.all_addresses, address)
+                start = address
+                if address == None:
+                    break
+                continue
+            break
+        return start
+    
+    def check_is_valid_exit(self, insn):
+        if insn.id == ARM_INS_BX:
+            return True
+        if insn.id == ARM_INS_POP:
+            operands = insn.operands
+            final_operand = operands[-1]
+            if final_operand.value.reg == ARM_REG_PC:
+                return True
+        return False
+    
     def check_preexisting_block(self, function_block_start_addresses,
                                 address, boundary=10):
         preexists = False
@@ -491,96 +481,6 @@ class FunctionEvaluator:
             if (address > lower_bound) and (address < upper_bound):
                 preexists = True
         return preexists
-        
-    def prune_function_blocks(self, function_block_start_addresses):
-        logging.debug('Pruning function list.')
-        function_block_start_addresses = list(set(function_block_start_addresses))
-        fblocks_to_delete = []
-        
-        # We add the existing function blocks to common_objs, but 
-        #  only temporarily.
-        temp_obj = {}
-        for fblock in function_block_start_addresses:
-            temp_obj[fblock] = {}
-        common_objs.function_blocks = temp_obj
-        
-        # Now we go through the instructions and make sure all conditional 
-        #  branches occur within the same function block.
-        # The only problem is that stripped binaries don't can contain 
-        #  incorrect conditional branches (i.e., data that is interpreted as 
-        #  instruction.
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address in common_objs.errored_instructions:
-                continue
-            if ins_address < common_objs.code_start_address:
-                continue
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
-                continue
-            insn = common_objs.disassembled_firmware[ins_address]['insn']
-            if insn.id not in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
-                continue
-            if insn.id == ARM_INS_B:
-                if ((insn.cc == ARM_CC_AL) or (insn.cc == ARM_CC_INVALID)):
-                    continue
-                branch_target = insn.operands[0].value.imm
-            elif insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
-                branch_target = insn.operands[1].value.imm
-
-            if branch_target not in common_objs.disassembled_firmware:
-                if ins_address not in common_objs.errored_instructions:
-                    common_objs.errored_instructions.append(ins_address)
-                continue
-            
-            # If the target has the signature of a high- or medium-certainty 
-            #  function block, then don't remove it.
-            is_high_certainty_fblock = self.check_fb_candidate_high_certainty(
-                common_objs.disassembled_firmware, 
-                branch_target
-            )
-            if is_high_certainty_fblock == True:
-                continue
-            is_med_certainty_fblock = self.check_fb_candidate_med_certainty(
-                common_objs.disassembled_firmware, 
-                branch_target
-            )
-            if is_med_certainty_fblock == True:
-                continue
-            
-            src_block = utils.id_function_block_for_instruction(ins_address)
-            dst_block = utils.id_function_block_for_instruction(branch_target)
-            if src_block == dst_block:
-                continue
-            if branch_target > ins_address:
-                start = src_block
-                end = dst_block
-            else:
-                start = dst_block
-                end = src_block
-            
-            list_fblocks_to_delete = []
-            list_fblocks_to_delete.append(start)
-            for fblock in function_block_start_addresses:
-                if ((fblock > start) and (fblock < end)):
-                    list_fblocks_to_delete.append(fblock)
-            
-            # Now we can mark the function block(s) for deletion.
-            for fblock_to_delete in list_fblocks_to_delete:
-                if fblock_to_delete not in fblocks_to_delete:
-                    fblocks_to_delete.append(fblock_to_delete)
-                    logging.debug(
-                        'Marking function block starting at '
-                        + hex(fblock_to_delete)
-                        + ' pointed to by instruction '
-                        + hex(ins_address)
-                        + ' for deletion.'
-                    )
-                
-        # Remove the identified function blocks.
-        for fblock_to_delete in fblocks_to_delete:
-            if fblock_to_delete in function_block_start_addresses:
-                function_block_start_addresses.remove(fblock_to_delete)
-                
-        return function_block_start_addresses
     
     #----------------- Find special functions ---------------------
     def identify_replace_functions(self):
@@ -720,6 +620,8 @@ class FunctionEvaluator:
             registers = [ARM_REG_R0,ARM_REG_R2,ARM_REG_R1]
         original_registers = copy.deepcopy(registers)
         for iaddress in ins_order:
+            if iaddress in common_objs.errored_instructions:
+                continue
             instruction = common_objs.disassembled_firmware[iaddress]['insn']
             if instruction == None:
                 continue
@@ -873,6 +775,9 @@ class FunctionEvaluator:
         address = fb_start_address
         while ((address != None) and (address <= fb_end_address)):
             if address not in common_objs.disassembled_firmware:
+                address = self.get_next_address(self.all_addresses, address)
+                continue
+            if address in common_objs.errored_instructions:
                 address = self.get_next_address(self.all_addresses, address)
                 continue
             if common_objs.disassembled_firmware[address]['is_data'] == True:
