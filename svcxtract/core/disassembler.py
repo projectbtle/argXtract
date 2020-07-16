@@ -26,7 +26,7 @@ class FirmwareDisassembler:
         # This is for the initial fw checks.
         if store!= True:
             return disassembled_fw
-        
+            
         # Add dummy keys, to handle Capstone issues.
         disassembled_firmware_with_dummy_keys = self.add_dummy_keys(
             disassembled_fw
@@ -44,7 +44,7 @@ class FirmwareDisassembler:
         common_objs.disassembled_firmware = self.remove_dummy_keys(
             common_objs.disassembled_firmware
         )
-
+        
         # Check again for inline data, but this time using inline addresses.
         self.check_inline_address_instructions()
         
@@ -215,7 +215,9 @@ class FirmwareDisassembler:
             #  not instructions, we set is_data to True, 
             #  and nullify instruction.
             common_objs.disassembled_firmware[ldr_target]['is_data'] = True
-            common_objs.disassembled_firmware[ldr_target]['insn'] = None   
+            if (ldr_target+2) in common_objs.disassembled_firmware:
+                common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
+            common_objs.disassembled_firmware[ldr_target]['insn'] = None  
             
             if insn.id == ARM_INS_LDR:
                 # If we don't have a 4-byte word, then we need to get remaining
@@ -286,6 +288,8 @@ class FirmwareDisassembler:
                 ldr_value = self.reg_eval.get_firmware_bytes(ldr_target, 4)
                 ldr_value = int(ldr_value, 16)
                 common_objs.disassembled_firmware[ldr_target]['is_data'] = True
+                if (ldr_target+2) in common_objs.disassembled_firmware:
+                    common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
                 common_objs.disassembled_firmware[ldr_target]['data'] = ldr_value
                 if ldr_value in common_objs.disassembled_firmware:
                     if data_start_firmware_address == '':
