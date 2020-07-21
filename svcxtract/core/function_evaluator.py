@@ -251,6 +251,9 @@ class FunctionEvaluator:
             branch_address = insn.operands[0].value.imm
             if branch_address not in common_objs.disassembled_firmware:
                 continue
+            if branch_address < common_objs.code_start_address:
+                common_objs.errored_instructions.append(ins_address)
+                continue
             
             # If the branch to is POP, or branch, then more likely to be
             #  internal branch.
@@ -441,7 +444,8 @@ class FunctionEvaluator:
         return flist
         
     def get_valid_next_start(self, address, end):
-        start = address            
+        start = address    
+        if address == None: return None
         while address <= end:
             if common_objs.disassembled_firmware[address]['is_data'] == True:
                 address = self.get_next_address(self.all_addresses, address)
@@ -561,6 +565,10 @@ class FunctionEvaluator:
             address = function
             ins_count = 0
             while ins_count < 10:
+                if address in common_objs.errored_instructions:
+                    address = self.get_next_address(self.all_addresses, address)
+                    ins_count += 1
+                    continue
                 at_address = common_objs.disassembled_firmware[address]
                 if ((at_address['is_data'] == True) 
                         or (at_address['insn'] == None)):
@@ -776,12 +784,15 @@ class FunctionEvaluator:
         while ((address != None) and (address <= fb_end_address)):
             if address not in common_objs.disassembled_firmware:
                 address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
                 continue
             if address in common_objs.errored_instructions:
                 address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
                 continue
             if common_objs.disassembled_firmware[address]['is_data'] == True:
                 address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
                 continue
             at_address = common_objs.disassembled_firmware[address]
             insn = at_address['insn']
@@ -798,6 +809,7 @@ class FunctionEvaluator:
                     if last_ins_for_target == branch_target:
                         return True
             address = self.get_next_address(self.all_addresses, address)
+            if address == None: break
         return False
         
     def check_all_nop_error(self, start_address, end_address):
@@ -806,9 +818,15 @@ class FunctionEvaluator:
         while ((address != None) and (address < end_address)):
             if address not in common_objs.disassembled_firmware:
                 address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
+                continue
+            if address in common_objs.errored_instructions:
+                address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
                 continue
             if common_objs.disassembled_firmware[address]['is_data'] == True:
                 address = self.get_next_address(self.all_addresses, address)
+                if address == None: break
                 continue
             insn = common_objs.disassembled_firmware[address]['insn']
             opcode = insn.id
@@ -821,6 +839,7 @@ class FunctionEvaluator:
             if is_nop_error == False:
                 all_nop_error = False
             address = self.get_next_address(self.all_addresses, address)
+            if address == None: break
         return all_nop_error
     
     def get_next_address(self, address_obj, ins_address):

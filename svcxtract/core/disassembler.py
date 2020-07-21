@@ -264,12 +264,16 @@ class FirmwareDisassembler:
             if insn.id == ARM_INS_B:
                 if insn.cc == ARM_CC_AL:
                     branch_target = insn.operands[0].value.imm
+                    if branch_target < common_objs.code_start_address:
+                        common_objs.errored_instructions.append(address)
+                        continue
                     if branch_target == address:
                         break
                         
             # If there's inline data, we've probably come to the end.
             if insn.id == ARM_INS_INVALID:
                 if ('byte' in insn.mnemonic):
+                    common_objs.errored_instructions.append(address)
                     continue
                 common_objs.disassembled_firmware[address]['is_data'] = True
                 break
