@@ -1,8 +1,8 @@
 import os
 import sys
 import json
-from svcxtract.common import paths as common_paths
-from svcxtract.core import consts
+from argxtract.common import paths as common_paths
+from argxtract.core import consts
 
 #============ Generic variables ============
 max_time = 300

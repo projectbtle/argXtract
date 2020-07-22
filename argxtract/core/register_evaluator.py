@@ -12,10 +12,10 @@ import numpy as np
 from capstone import *
 from capstone.arm import *
 from random import getrandbits
-from svcxtract.core import utils
-from svcxtract.core import consts
-from svcxtract.common import paths as common_paths
-from svcxtract.common import objects as common_objs
+from argxtract.core import utils
+from argxtract.core import consts
+from argxtract.common import paths as common_paths
+from argxtract.common import objects as common_objs
 
 
 class RegisterEvaluator:

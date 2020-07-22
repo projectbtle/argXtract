@@ -6,12 +6,12 @@ import hashlib
 import logging
 import argparse
 from time import sleep
-from svcxtract.common import objects as common_objs
-from svcxtract.core.analyser import FirmwareAnalyser
+from argxtract.common import objects as common_objs
+from argxtract.core.analyser import FirmwareAnalyser
 from multiprocessing import Process, JoinableQueue, active_children
 
 
-class SVCXtract:
+class argxtract:
     def __init__(self):
         self.vendor = None
         self.processes = 1
@@ -27,7 +27,7 @@ class SVCXtract:
         
     def set_args(self):
         self.argparser = argparse.ArgumentParser(
-            description = 'SVCXtract enables testing Nordic firmware '
+            description = 'argxtract enables testing Nordic firmware '
                           + 'files to enumerate services and characteristics, '
                           + ' and identify characteristic protection levels.',
             epilog = 'Note that this tool has only been '
@@ -132,6 +132,8 @@ class SVCXtract:
                 sys.exit(0)
             for root, dir, fw_files in os.walk(fw_directory):
                 for fw_file in fw_files:
+                    if (not (fw_file.endswith('.bin'))):
+                        continue
                     filepath = os.path.join(root, fw_file)
                     if (not(os.path.isfile(filepath))):
                         logging.error(
@@ -153,6 +155,8 @@ class SVCXtract:
             with open(filelist) as f:
                 fw_files = f.read().splitlines()
             for fw_file in fw_files:
+                if (not (fw_file.endswith('.bin'))):
+                    continue
                 if (not(os.path.isfile(fw_file))):
                     logging.error(
                         'File does not exist: '
@@ -163,6 +167,12 @@ class SVCXtract:
                     self.core_file_list.append(fw_file)
         elif args.file:
             filepath = args.file
+            if (not (filepath.endswith('.bin'))):
+                logging.critical(
+                    'Not a bin file '
+                    + filepath
+                )
+                sys.exit(0)
             if (not(os.path.isfile(args.file))):
                 logging.critical(
                     'Firmware file does not exist! '
@@ -213,7 +223,7 @@ class SVCXtract:
         # Banner.
         print(
             '\n==================================\n'
-            + 'SVCXtract\n'
+            + 'argxtract\n'
             + '==================================\n'
         )
         
@@ -303,7 +313,7 @@ class SVCXtract:
         
         #Create worker processes.
         for i in range(0, self.processes):
-            workerx = SVCXtractWorker(
+            workerx = argxtractWorker(
                 self.vendor, 
                 self.max_time,
                 self.max_call_depth,
@@ -356,7 +366,7 @@ class SVCXtract:
                     if not p.is_alive():
                         process_list.remove(p)
                         # Create replacement worker.
-                        workerx = SVCXtractWorker(
+                        workerx = argxtractWorker(
                             self.vendor, 
                             self.max_time,
                             self.max_call_depth,
@@ -387,7 +397,7 @@ class SVCXtract:
             process_send_queue.put('STOP')
             
 
-class SVCXtractWorker:
+class argxtractWorker:
     def __init__(self, vendor, max_time, max_call_depth, loglevel, 
             null_handling, bypass):
         self.vendor = vendor
@@ -455,5 +465,5 @@ class SVCXtractWorker:
                 continue
 
 if __name__ == '__main__':
-    analysable_instance = SVCXtract()
+    analysable_instance = argxtract()
     analysable_instance.start_analysis()

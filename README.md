@@ -1,7 +1,7 @@
-![banner](docs/svcxtract.png)
+![banner](docs/banner.png)
 
-# SVCXtract
-SVCXtract enables the extraction of arguments to SVC Calls from stripped IoT binaries. Vendor-specific customisation is required before the tool can be used.
+# argXtract
+argXtract enables the extraction of arguments to SVC Calls from stripped IoT binaries. Vendor-specific customisation is required before the tool can be used.
 
 
 ## Requirements
@@ -44,6 +44,3 @@ optional arguments:
 
 ## Output
 An individual JSON file is generated per analysed file, and all such output JSONs are placed within the `output` directory. The SHA256 hash of the file is used as the name for the output file.
-
-## Notes
-SVCXtract avoids internal loops within the Reset Handler. Including these elements would not add much information in general, and would significantly increase analysis time. If there is a use case for including them, please let us know by raising an issue.

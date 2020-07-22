@@ -8,12 +8,12 @@ from capstone import *
 from capstone.arm import *
 from random import getrandbits
 from collections import Counter 
-from svcxtract.common import paths as common_paths
-from svcxtract.core import utils
-from svcxtract.core import consts
-from svcxtract.common import objects as common_objs
-from svcxtract.core.chipset_analyser import ChipsetAnalyser
-from svcxtract.core.register_evaluator import RegisterEvaluator
+from argxtract.common import paths as common_paths
+from argxtract.core import utils
+from argxtract.core import consts
+from argxtract.common import objects as common_objs
+from argxtract.core.chipset_analyser import ChipsetAnalyser
+from argxtract.core.register_evaluator import RegisterEvaluator
 
 
 class SvcAnalyser:

@@ -3,9 +3,9 @@ import sys
 import struct
 import logging
 from capstone.arm import *
-from svcxtract.common import paths as common_paths
-from svcxtract.core import consts
-from svcxtract.common import objects as common_objs
+from argxtract.common import paths as common_paths
+from argxtract.core import consts
+from argxtract.common import objects as common_objs
 
 
 def id_function_block_for_instruction(ins_address):

@@ -4,11 +4,11 @@ import struct
 import logging
 from capstone import *
 from capstone.arm import *
-from svcxtract.common import paths as common_paths
-from svcxtract.core import utils
-from svcxtract.core import consts
-from svcxtract.common import objects as common_objs
-from svcxtract.core.register_evaluator import RegisterEvaluator
+from argxtract.common import paths as common_paths
+from argxtract.core import utils
+from argxtract.core import consts
+from argxtract.common import objects as common_objs
+from argxtract.core.register_evaluator import RegisterEvaluator
 
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB + CS_MODE_LITTLE_ENDIAN)
 # Turn on SKIPDATA mode - this is needed!

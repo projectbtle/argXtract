@@ -1,6 +1,6 @@
 **/__pycache__*
 **/*.pyc
-svcxtract/resources/vendor/*
-!svcxtract/resources/vendor/.gitignore
+argxtract/resources/vendor/*
+!argxtract/resources/vendor/.gitignore
 output/*.json
 status.csv

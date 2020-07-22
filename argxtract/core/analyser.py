@@ -4,15 +4,15 @@ import json
 import numpy
 import timeit
 import logging
-from svcxtract.core import utils
-from svcxtract.core import consts
-from svcxtract.common import paths as common_paths
-from svcxtract.common import objects as common_objs
-from svcxtract.core.svc_analyser import SvcAnalyser
-from svcxtract.core.chipset_analyser import ChipsetAnalyser
-from svcxtract.core.disassembler import FirmwareDisassembler
-from svcxtract.core.function_evaluator import FunctionEvaluator
-from svcxtract.core.register_evaluator import RegisterEvaluator
+from argxtract.core import utils
+from argxtract.core import consts
+from argxtract.common import paths as common_paths
+from argxtract.common import objects as common_objs
+from argxtract.core.svc_analyser import SvcAnalyser
+from argxtract.core.chipset_analyser import ChipsetAnalyser
+from argxtract.core.disassembler import FirmwareDisassembler
+from argxtract.core.function_evaluator import FunctionEvaluator
+from argxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
