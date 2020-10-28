@@ -54,19 +54,8 @@ class SvcAnalyser:
                     'callers': []
                 }
             
-            # Treat GCC and non-GCC separately.
-            if common_objs.compiler == consts.COMPILER_GCC:
-                if ('xref_from' not in 
-                        common_objs.disassembled_firmware[ins_address]):
-                    if ins_address not in common_objs.errored_instructions:
-                        common_objs.errored_instructions.append(ins_address)
-                    continue
-                for item in common_objs.disassembled_firmware[ins_address]['xref_from']:
-                    if item not in svc_object[svc_call]['callers']:
-                        svc_object[svc_call]['callers'].append(item)
-            else:
-                if ins_address not in svc_object[svc_call]['callers']:
-                    svc_object[svc_call]['callers'].append(ins_address)
+            if ins_address not in svc_object[svc_call]['callers']:
+                svc_object[svc_call]['callers'].append(ins_address)
                     
         # Clean-up. Remove any calls that don't have xref_from.
         new_svc_object = {}
