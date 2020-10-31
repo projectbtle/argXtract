@@ -67,9 +67,9 @@ class ChipsetAnalyser:
             
         common_objs.vendor = vendor
         
-    def test_chipset_against_vendor(self, path_to_fw):
+    def test_binary_against_vendor(self):
         # Perform tests.
-        is_vendor = self.vendor_analyser.test_chipset(path_to_fw)
+        is_vendor = self.vendor_analyser.test_binary_against_vendor()
         if is_vendor == True:
             return True
         else:

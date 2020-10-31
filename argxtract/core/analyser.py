@@ -8,7 +8,7 @@ from argxtract.core import utils
 from argxtract.core import consts
 from argxtract.common import paths as common_paths
 from argxtract.common import objects as common_objs
-from argxtract.core.svc_analyser import SvcAnalyser
+from argxtract.core.coi_processor import CoiProcessor
 from argxtract.core.chipset_analyser import ChipsetAnalyser
 from argxtract.core.disassembler import FirmwareDisassembler
 from argxtract.core.function_evaluator import FunctionEvaluator
@@ -16,8 +16,9 @@ from argxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
-    def __init__(self, vendor, max_time, max_call_depth, loglevel, 
+    def __init__(self, mode, vendor, max_time, max_call_depth, loglevel, 
                     null_handling, bypass, process_id):
+        common_objs.mode = mode
         common_objs.max_time = max_time
         common_objs.max_call_depth = max_call_depth
         common_objs.null_value_handling = null_handling
@@ -25,12 +26,22 @@ class FirmwareAnalyser:
         
         logging.getLogger().setLevel(loglevel)
         self.set_paths(process_id)
-        
+
         # First things first, run vendor tests.
+        # These are NOT tests on the firmware file itself,
+        #  but tests to initialise the vendor component.
+        # Do not move or remove.
         self.chipset_analyser = ChipsetAnalyser()
         self.chipset_analyser.initialise(vendor)
         if common_objs.vendor == None:
             return None
+        
+        # Set vendor paths.
+        common_paths.vendor_path = os.path.join(
+            common_paths.resources_path,
+            'vendor',
+            common_objs.vendor
+        )
         
     def analyse_firmware(self, path_to_fw):
         # Start with clean slate.
@@ -39,11 +50,13 @@ class FirmwareAnalyser:
         # Start timer.
         start_time = timeit.default_timer()
         
+        """ Basic checks """
         logging.info(
             'Checking file: "'
             + path_to_fw
             + '".\n'
         )
+        
         # Does file even exist?
         if (not (os.path.isfile(path_to_fw))):
             logging.critical(
@@ -53,50 +66,66 @@ class FirmwareAnalyser:
             )
             return None
         
+        file_size_in_bytes = os.stat(path_to_fw).st_size
+        # A very small file wouldn't be firmware. 
+        # ARM AVT itself is at least 60 bytes.
+        if file_size_in_bytes < 0x3C:
+            return None
+        
         # Set path, once file is confirmed to exist.
         common_paths.path_to_fw = path_to_fw
         
-        # Test for compiler type.
-        utils.test_gcc_vs_other()
+        """ Step 1: Get app code base """
+        # Get application code base.
+        self.disassembler.estimate_app_code_base()
         
-        # Get AVT
-        utils.analyse_vector_table(path_to_fw)
-        
-        # Run vendor-specific tests and find out the chipset/vendor.
-        # This function will also set chipset-specific variables, 
-        #  such as app code base, etc.
-        vendor_match = self.chipset_analyser.test_chipset_against_vendor(
-            path_to_fw
-        )
+        # Run vendor-specific tests and set binary/chipset-specific variables.
+        vendor_match = self.chipset_analyser.test_binary_against_vendor()
         if vendor_match != True:
             logging.critical(
                 'Unable to match firmware to vendor.'
             )
             return None
+
+        """ Step 2: Disassemble and annotate data and other pertinent info """
+        # Disassemble firmware binary.
+        self.disassembler.create_disassembled_object()
         
-        # Set paths for SVC.
-        self.svc_analyser.set_vendor_paths()
+        # Mark out .data and inline data.
+        self.disassembler.identify_inline_data()
         
-        # Disassemble fw.
-        self.disassembler.create_disassembled_obj()
+        # Annotate firmware object with branch call/target information.
+        self.disassembler.annotate_links()
+
+        """ Step 3: Function block estimation and pattern matching """
+        # Identify function blocks
+        self.function_evaluator.estimate_function_blocks()
         
-        # Identify function blocks, possible memset, and blacklist.
-        self.function_evaluator.perform_function_block_analysis()
+        # Identify denylisted blocks (that should not be considered when tracing).
+        # Functions we shouldn't branch to.
+        self.function_evaluator.populate_denylist()
         
-        # Create SVC object.
-        self.svc_analyser.create_svc_object()
-        # If there are no SVC calls, then we can't proceed with analysis.
-        if len(common_objs.svc_calls.keys()) == 0:
+        # Perform function pattern matching.
+        self.function_evaluator.perform_function_pattern_matching()
+
+        """ Step 4: Mark locations of COIs """
+        # Create COI object.
+        self.coi_processor.identify_coi_addresses()
+
+        # If there are no calls to COIs, then we can't proceed with analysis.
+        if len(common_objs.coi_addresses.keys()) == 0:
             logging.critical(
                 'The provided firmware file appears to have '
-                + 'no SVC calls. '
+                + 'no calls to COIs. '
                 + 'It cannot be analysed using this tool.'
             )
             return None
         
-        # Now do individual SVC calls of interest.
-        output_object = self.svc_analyser.process_svc_chains()
+        """ Step 5: Trace """
+        # Now do individual calls of interest.
+        output_object = self.coi_processor.process_coi_chains()
 
+        """ Finalise. """
         final_output = self.add_metadata(output_object)
         serializable_output = self.convert_to_serializable(final_output)
 
@@ -149,7 +178,7 @@ class FirmwareAnalyser:
             final_output['metadata'] = chipset_metadata
         # Add output object.
         final_output['output'] = output_object['output']
-        final_output['svcs'] = output_object['svcs']
+        final_output['cois'] = output_object['cois']
         final_output['unhandled'] = output_object['unhandled']
         return final_output
         
@@ -174,24 +203,20 @@ class FirmwareAnalyser:
     def reset(self):
         self.disassembler = None
         self.function_evaluator = None
-        self.svc_analyser = None
+        self.coi_processor = None
         self.register_evaluator = None
         
         self.disassembler = FirmwareDisassembler()
         self.function_evaluator = FunctionEvaluator()
-        self.svc_analyser = SvcAnalyser()
+        self.coi_processor = CoiProcessor()
         self.register_evaluator = RegisterEvaluator()
         
         # Reset paths.
         common_paths.path_to_fw = ''
         
-        # Reset objects.
-        
-        # Variables.
-        common_objs.compiler = consts.COMPILER_GCC
+        # Reset variables.
         common_objs.arm_arch = consts.ARMv6M
-        
-        # Firmware breakdown.
+        #> Firmware breakdown.
         common_objs.app_code_base = 0x00000000
         common_objs.disassembly_start_address = 0x00000000
         common_objs.code_start_address = 0x00000000
@@ -200,20 +225,20 @@ class FirmwareAnalyser:
         common_objs.ram_length = 0x00000000
         common_objs.vector_table_size = 0
         common_objs.application_vector_table = {}
-        common_objs.svc_set = {}
+        common_objs.vendor_svc_set = {}
         common_objs.core_bytes = None
         common_objs.disassembled_firmware = {}
         common_objs.data_region = {}
         common_objs.errored_instructions = []
         common_objs.function_blocks = {}
         common_objs.replace_functions = {}
-        common_objs.blacklisted_functions = []
-        common_objs.svc_calls = {}
-        # Tracing objects.
-        common_objs.svc_chains = []
-        common_objs.svc_function_blocks = []
+        common_objs.denylisted_functions = []
+        common_objs.coi_addresses = {}
+        #> Tracing objects.
+        common_objs.coi_chains = []
+        common_objs.coi_function_blocks = []
         common_objs.potential_start_points = []
-        # Chipset-specific reset.
+        #> Chipset-specific reset.
         self.chipset_analyser.reset()
         
     

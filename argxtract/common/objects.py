@@ -6,6 +6,7 @@ from argxtract.core import consts
 
 #============ Generic variables ============
 max_time = 300
+mode = consts.MODE_SVC
 vendor = None
 endian = 'little'
 allow_loops = True
@@ -14,8 +15,6 @@ null_value_handling = consts.NULL_HANDLING_NONE
 bypass_all_conditional_checks = False
 
 #========== File-specific variables =========
-
-compiler = consts.COMPILER_GCC
 arm_arch = consts.ARMv6M
 
 # Firmware breakdown.
@@ -27,17 +26,16 @@ ram_base = 0x00000000
 ram_length = 0x00000000
 vector_table_size = 0
 application_vector_table = {}
-svc_set = {}
 core_bytes = None
 disassembled_firmware = {}
 data_region = {}
 errored_instructions = []
 function_blocks = {}
 replace_functions = {}
-blacklisted_functions = []
-svc_calls = {}
+denylisted_functions = []
+coi_addresses = {}
 
 # Tracing objects.
-svc_chains = []
-svc_function_blocks = []
+coi_chains = []
+coi_function_blocks = []
 potential_start_points = []

@@ -1,8 +1,8 @@
 from capstone.arm import *
 
-# Compiler type.
-COMPILER_GCC = 'gcc'
-COMPILER_NON_GCC = 'non_gcc'
+# Analysis mode.
+MODE_SVC = 'svc'
+MODE_FUNCTION = 'function'
 
 # ARM architecture.
 ARMv6M = 'armv6m'

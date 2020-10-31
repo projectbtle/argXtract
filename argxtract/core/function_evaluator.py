@@ -14,7 +14,7 @@ class FunctionEvaluator:
     def __init__(self):
         pass
         
-    def perform_function_block_analysis(self):
+    def estimate_function_blocks(self):
         logging.info(
             'Performing function block analyses.'
         )
@@ -27,20 +27,6 @@ class FunctionEvaluator:
                 continue
             self.all_addresses.append(address)
         
-        # Identify function blocks.
-        self.find_function_blocks()
-        
-        # Identify important functions (like memset),
-        #  which we will replace with equivalent functionality,
-        #  to reduce processing time.
-        self.identify_replace_functions()
-        
-        # Identify blacklisted blocks 
-        #  (that should not be considered when tracing).
-        # Functions we shouldn't branch to.
-        self.populate_blacklist()
-        
-    def find_function_blocks(self):
         """Find potential function blocks within assembly code.
         
         This is a multi-step process: 
@@ -68,7 +54,7 @@ class FunctionEvaluator:
         function_block_start_addresses.sort()
         
         # Step 2.
-        function_block_start_addresses = self.check_for_function_exit_ins(
+        function_block_start_addresses = self.estimate_functions_using_exit_points(
             function_block_start_addresses
         )
         function_block_start_addresses.sort()
@@ -131,7 +117,7 @@ class FunctionEvaluator:
     def get_xref_to(self, fb_start, fb_end):
         address = fb_start
         xref_to = []
-        while ((address!=None) and (address <= fb_end)):
+        while ((address != None) and (address <= fb_end)):
             address = self.get_next_address(self.all_addresses, address)
             if address == None: break
             if address > fb_end: break
@@ -351,7 +337,7 @@ class FunctionEvaluator:
                     return True
         return False
     
-    def check_for_function_exit_ins(self, function_block_start_addresses):
+    def estimate_functions_using_exit_points(self, function_block_start_addresses):
         num_functions = len(function_block_start_addresses)
         new_function_block_start_addresses = []
         for idx, function_start in enumerate(function_block_start_addresses):
@@ -388,16 +374,17 @@ class FunctionEvaluator:
             fw_bytes = common_objs.disassembled_firmware[address]
             
             # If we've got to a point that is data, then there must be
-            # a way to skip over it (within a function.
+            # a way to skip over it (within a function).
             potential_end = False
             if fw_bytes['is_data'] == True:
                 potential_end = True
             else:
-                # Logical exit points for a function are bx and pop-pc.
+                # Logical exit points for a function are bx, pop-pc and 
+                #  unconditional self-targeting branches.
                 # Again, within a function, there must be a way to skip over them.
                 insn = fw_bytes['insn']
                 operands = insn.operands
-                is_valid_exit = self.check_is_valid_exit(insn)
+                is_valid_exit = self.check_is_valid_exit(address)
                 if is_valid_exit == True:
                     potential_end = True
                     
@@ -465,7 +452,8 @@ class FunctionEvaluator:
             break
         return start
     
-    def check_is_valid_exit(self, insn):
+    def check_is_valid_exit(self, ins_address):
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
         if insn.id == ARM_INS_BX:
             return True
         if insn.id == ARM_INS_POP:
@@ -473,6 +461,12 @@ class FunctionEvaluator:
             final_operand = operands[-1]
             if final_operand.value.reg == ARM_REG_PC:
                 return True
+        if insn.id == ARM_INS_B:
+            if insn.cc == ARM_CC_AL:
+                target_address_int = insn.operands[0].value.imm
+                target_address = hex(target_address_int)
+                if target_address_int == ins_address:
+                    return True
         return False
     
     def check_preexisting_block(self, function_block_start_addresses,
@@ -487,7 +481,9 @@ class FunctionEvaluator:
         return preexists
     
     #----------------- Find special functions ---------------------
-    def identify_replace_functions(self):
+    def perform_function_pattern_matching(self):
+        # When function patterns are used for COIs, 
+        #  this is where we would process those too.
         logging.info('Identifying pertinent functions.')
         (memset_address, reg_order, fixed_val) = \
             self.identify_memset()
@@ -518,6 +514,8 @@ class FunctionEvaluator:
         for ins_address in common_objs.function_blocks:
             if ins_address in common_objs.errored_instructions:
                 continue
+            if ins_address in common_objs.denylisted_functions:
+                continue
             if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
                 continue
             # memset would be BL.
@@ -527,12 +525,20 @@ class FunctionEvaluator:
                 insn_id = common_objs.disassembled_firmware[xref]['insn'].id
                 if insn_id == ARM_INS_BL:
                     bl_xrefs.append(xref)
-            if len(bl_xrefs) < 2:
-                continue
+            if len(bl_xrefs) < 2: continue
             start_address = ins_address
-            
+            end_address = utils.id_function_block_end(start_address)
             (is_memset, reg_order, fixed_value) = self.check_for_memset(
-                start_address
+                start_address,
+                end_address,
+                [ARM_REG_R0,ARM_REG_R1,ARM_REG_R2]
+            )
+            if is_memset == True:
+                possible_memsets.append((ins_address, reg_order, fixed_value))
+            (is_memset, reg_order, fixed_value) = self.check_for_memset(
+                start_address,
+                end_address,
+                [ARM_REG_R0,ARM_REG_R2,ARM_REG_R1]
             )
             if is_memset == True:
                 possible_memsets.append((ins_address, reg_order, fixed_value))
@@ -586,13 +592,11 @@ class FunctionEvaluator:
             function_tuples.remove(function)
         return function_tuples
                     
-    def check_for_memset(self, start_address):
+    def check_for_memset(self, start_address, end_address, registers):
         is_memset = False
-        registers = None
         fixed_value = None
         address = start_address
-        
-        # Prelim check. STRB must be present.
+        # Prelim checks. STRB must be present.
         is_strb = False
         ins_count = 0
         ins_order = [address]
@@ -615,17 +619,14 @@ class FunctionEvaluator:
                     address = self.get_next_address(self.all_addresses, address)
             else:
                 address = self.get_next_address(self.all_addresses, address)
+                
             ins_count += 1
             ins_order.append(address)
         # If there isn't a STRB instruction, we needn't look any further.
-        if is_strb == False: return (is_memset, registers, fixed_value)
-
+        if is_strb == False: return (is_memset, None, fixed_value)
+        
         # Now go through the instructions in order, keeping track
         #  of registers.
-        if common_objs.compiler == consts.COMPILER_GCC:
-            registers = [ARM_REG_R0,ARM_REG_R1,ARM_REG_R2]
-        else:
-            registers = [ARM_REG_R0,ARM_REG_R2,ARM_REG_R1]
         original_registers = copy.deepcopy(registers)
         for iaddress in ins_order:
             if iaddress in common_objs.errored_instructions:
@@ -661,6 +662,8 @@ class FunctionEvaluator:
         possible_udivs = []
         for ins_address in common_objs.function_blocks:
             if ins_address in common_objs.errored_instructions:
+                continue
+            if ins_address in common_objs.denylisted_functions:
                 continue
             if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
                 continue
@@ -740,36 +743,36 @@ class FunctionEvaluator:
         )
         return True
     
-    #------------------ Blacklisted functions ----------------
-    def populate_blacklist(self):
-        logging.info('Populating function blacklist.')
+    #------------------ denylisted functions ----------------
+    def populate_denylist(self):
+        logging.info('Populating function denylist.')
         
-        blacklisted_functions = []
+        denylisted_functions = []
         for intrpt in common_objs.application_vector_table:
             if intrpt == 'initial_sp':
                 continue
             if intrpt == 'reset':
                 continue
-            blacklisted_functions.append(
+            denylisted_functions.append(
                 common_objs.application_vector_table[intrpt]
             )
             
         for function_block in common_objs.function_blocks:
-            if function_block in blacklisted_functions:
+            if function_block in denylisted_functions:
                 continue
-            blacklist_function = self.check_function_to_blacklist(
+            denylist_function = self.check_function_to_denylist(
                 function_block,
                 common_objs.function_blocks[function_block]
             )
-            if blacklist_function == True:
+            if denylist_function == True:
                 logging.debug(
-                    'Blacklisting function block beginning at '
+                    'denylisting function block beginning at '
                     + hex(function_block)
                 )
-                blacklisted_functions.append(function_block)
-        common_objs.blacklisted_functions = blacklisted_functions
+                denylisted_functions.append(function_block)
+        common_objs.denylisted_functions = denylisted_functions
         
-    def check_function_to_blacklist(self, fb_start_address, func_block):
+    def check_function_to_denylist(self, fb_start_address, func_block):
         """Check whether a function block should be excluded from traces."""
         fb_end_address = func_block['end']
         if fb_end_address == 'END': fb_end_address = self.all_addresses[-1]

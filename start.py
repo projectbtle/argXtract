@@ -7,6 +7,7 @@ import logging
 import argparse
 from time import sleep
 from argxtract.common import objects as common_objs
+from argxtract.core import consts
 from argxtract.core.analyser import FirmwareAnalyser
 from multiprocessing import Process, JoinableQueue, active_children
 
@@ -14,6 +15,7 @@ from multiprocessing import Process, JoinableQueue, active_children
 class argxtract:
     def __init__(self):
         self.vendor = None
+        self.mode = consts.MODE_SVC
         self.processes = 1
         self.bypass = False
         self.max_time = common_objs.max_time
@@ -92,6 +94,17 @@ class argxtract:
             type = int,
             action = 'store',
             help = 'maximum call depth of a function to be included in trace.'
+        )
+        self.argparser.add_argument(
+            '-M',
+            '--Mode',
+            type = str,
+            choices = ['s', 'f'],
+            action = 'store',
+            nargs = '?',
+            help = 'analysis mode. '
+                   + 'Either s (SVC) '
+                   + 'or f (function).'
         )
         self.argparser.add_argument(
             '-v',
@@ -208,6 +221,12 @@ class argxtract:
         if args.max_call_depth:
             if args.max_call_depth > 0:
                 self.max_call_depth = args.max_call_depth
+        
+        if args.Mode:
+            if args.Mode == 'f':
+                self.mode = consts.MODE_FUNCTION
+            else:
+                self.mode  = consts.MODE_SVC
                 
         if args.processes:
             if args.processes > 0:
@@ -258,6 +277,7 @@ class argxtract:
             
     def execute_single_process(self):
         firmware_analyser = FirmwareAnalyser(
+            self.mode,
             self.vendor, 
             self.max_time,
             self.max_call_depth,
@@ -280,15 +300,15 @@ class argxtract:
                 # Get analysis output.
                 output = firmware_analyser.analyse_firmware(fw_file)
                 if output == None:
-                    outfile.write(fw_file + ',None')
+                    outfile.write(fw_file + ',None\n')
                     outfile.flush()
                 # Write to file.
                 with open(outputfilename, 'w') as f: 
                     json.dump(output, f, indent=4)
-                outfile.write(fw_file + ',Completed,None')
+                outfile.write(fw_file + ',Completed,None\n')
                 outfile.flush()
             except Exception as e:
-                outfile.write(fw_file + ',Error,' + str(e))
+                outfile.write(fw_file + ',Error,' + str(e) + '\n')
                 outfile.flush()
                 
     def execute_multiple_processes(self):
@@ -314,6 +334,7 @@ class argxtract:
         #Create worker processes.
         for i in range(0, self.processes):
             workerx = argxtractWorker(
+                self.mode,
                 self.vendor, 
                 self.max_time,
                 self.max_call_depth,
@@ -367,6 +388,7 @@ class argxtract:
                         process_list.remove(p)
                         # Create replacement worker.
                         workerx = argxtractWorker(
+                            self.mode,
                             self.vendor, 
                             self.max_time,
                             self.max_call_depth,
@@ -398,8 +420,9 @@ class argxtract:
             
 
 class argxtractWorker:
-    def __init__(self, vendor, max_time, max_call_depth, loglevel, 
+    def __init__(self, mode, vendor, max_time, max_call_depth, loglevel, 
             null_handling, bypass):
+        self.mode = mode
         self.vendor = vendor
         self.bypass = bypass
         self.max_time = max_time
@@ -410,6 +433,7 @@ class argxtractWorker:
         
     def main(self, in_queue, out_queue, process_id):
         firmware_analyser = FirmwareAnalyser(
+            self.mode,
             self.vendor, 
             self.max_time,
             self.max_call_depth,

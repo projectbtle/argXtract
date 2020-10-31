@@ -16,21 +16,42 @@ from argxtract.core.chipset_analyser import ChipsetAnalyser
 from argxtract.core.register_evaluator import RegisterEvaluator
 
 
-class SvcAnalyser:
+class CoiProcessor:
     def __init__(self):
         self.chipset_analyser = ChipsetAnalyser()
         self.reg_eval = RegisterEvaluator()
         
-    def set_vendor_paths(self):
-        self.svc_definition_dir = os.path.join(
-            common_paths.resources_path,
-            'vendor',
-            common_objs.vendor,
-            'svc'
-        )
-        
-    def create_svc_object(self):
-        svc_object = {}
+    def identify_coi_addresses(self):
+        coi_address_object = {}
+        coi_list = self.get_arg_files()
+        if len(coi_list) == 0:
+            logging.critical('No ARG definition files found!')
+            return
+
+        for arg_file in coi_list:
+            coi_name = (os.path.basename(arg_file)).replace('.json', '')
+            coi_address_object[coi_name] = {}
+            coi_address_object[coi_name]['callers'] = []
+            
+        if common_objs.mode == consts.MODE_SVC:
+            self.identify_svc_addresses(coi_address_object)
+        elif common_objs.mode == consts.MODE_FUNCTION:
+            self.identify_function_addresses(coi_address_object)
+        else:
+            logging.error('Unknown mode')
+            return
+    
+    #------------------- SVC Addresses Enumeration ----------------------#
+    def identify_svc_addresses(self, coi_address_object):
+        svc_nums_of_interest = {}
+        for svc_name in coi_address_object:
+            # Get the SVC identifier.
+            svc_num = self.get_svc_num(svc_name)
+            if svc_num == None: continue
+            svc_num = int(svc_num, 16)
+            coi_address_object[svc_name]['svc_num'] = svc_num
+            svc_nums_of_interest[svc_num] = svc_name
+            
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
@@ -46,81 +67,122 @@ class SvcAnalyser:
                 continue
                 
             # Get svc call.
-            svc_call = insn.operands[0].value.imm
+            svc_number = insn.operands[0].value.imm
             
-            # Add SVC number to SVC object.
-            if svc_call not in svc_object:
-                svc_object[svc_call] = {
-                    'callers': []
-                }
+            # If SVC number not one that we are interested in, then continue.
+            if svc_number not in list(svc_nums_of_interest.keys()):
+                continue
             
-            if ins_address not in svc_object[svc_call]['callers']:
-                svc_object[svc_call]['callers'].append(ins_address)
+            svc_name = svc_nums_of_interest[svc_number]
+            
+            if ins_address not in coi_address_object[svc_name]['callers']:
+                coi_address_object[svc_name]['callers'].append(ins_address)
                     
         # Clean-up. Remove any calls that don't have xref_from.
-        new_svc_object = {}
-        for svc_call in svc_object:
-           if svc_object[svc_call]['callers'] != []:
-               new_svc_object[svc_call] = svc_object[svc_call]
-               
+        new_address_object = {}
+        for svc_name in coi_address_object:
+           if coi_address_object[svc_name]['callers'] != []:
+               new_address_object[svc_name] = coi_address_object[svc_name]
+
         # Assign object to common objs, and cleanup.
-        common_objs.svc_calls = new_svc_object
-        svc_object = None
-        new_svc_object = None
+        common_objs.coi_addresses = new_address_object
+        new_address_object = None
+        coi_address_object = None
         
-    def find_all_svc_chains(self, svc_call, store=True):
-        """Find all call chains tracing backwards from an SVC call."""
-        all_svc_chains = []
+    def get_svc_num(self, svc_name):
+        if ((common_objs.vendor_svc_set != None) and 
+                (common_objs.vendor_svc_set != {})):
+            if svc_name in common_objs.vendor_svc_set:
+                svc_num = common_objs.vendor_svc_set[svc_name]
+                return svc_num
+        else:
+            return self.chipset_analyser.get_svc_num(svc_name)
+
+    #------------------- Function Addresses Enumeration ----------------------#
+    def identify_function_addresses(self):
+        pass
+    
+    
+    #-------------------- Trace -----------------------#
+    def process_coi_chains(self):
+        self.output_object = {
+            'output': {},
+            'memory': {},
+            'cois': []
+        }
+
+        processing_object = {}
+        all_fblocks = []
+        for coi_name in common_objs.coi_addresses:
+            # Get call chains.
+            (coi_chains, fblocks) = self.find_all_coi_chains(
+                coi_name,
+                store=False
+            )
+            if len(coi_chains) > 0:
+                self.output_object['cois'].append(coi_name)
+            processing_object[coi_name] = coi_chains
+            for fblock in fblocks:
+                if fblock not in all_fblocks:
+                    all_fblocks.append(fblock)
+        # Combine the outputs, to reduce trace time.
+        combined_trace_object = self.combine_coi_traces(processing_object)
+        
+        # Save the function blocks in common_objs, so that we don't 
+        #  accidentally denylist them.
+        common_objs.coi_function_blocks = all_fblocks
+        
+        # Get output from register trace.
+        unhandled = self.reg_eval.estimate_reg_values_for_trace_object(
+            combined_trace_object,
+            self
+        )
+        self.output_object['unhandled'] = unhandled
+        return self.output_object
+        
+    def find_all_coi_chains(self, coi_name, store=True):
+        """Find all call chains tracing backwards from a COI."""
+        all_coi_chains = []
         fblock_list = []
         
-        logging.debug('Looking for SVC chains for SVC num: ' + hex(svc_call))
-        
-        if svc_call not in common_objs.svc_calls:
-            logging.debug(
-                '[svc_analyser] SVC number '
-                + hex(svc_call)
-                + ' not present in SVC object.'
-            )
-            return (all_svc_chains, fblock_list)
+        logging.debug('Looking for COI name: ' + coi_name)
 
-        # First get all instructions that make SVC calls.
-        # With GCC, this will be instruction that calls a function that 
-        #  makes an SVC call.
-        xrefs_from_svc = common_objs.svc_calls[svc_call]['callers']
+        # First get all instructions that call the COI.
+        xrefs_from_coi = common_objs.coi_addresses[coi_name]['callers']
         
         starting_points = []
-        # For every instruction that makes an SVC call, identify the function
+        # For every instruction that call the COI, identify the function
         #  block that it belongs to.
-        # This is the starting point for the SVC call chain.
-        for xref_from_svc in xrefs_from_svc:
+        # This is the starting point for the COI call chain.
+        for xref_from_coi in xrefs_from_coi:
             function_block = utils.id_function_block_for_instruction(
-                xref_from_svc
+                xref_from_coi
             )
             if function_block not in fblock_list:
                 fblock_list.append(function_block)
-            svcxref_functionblock = str(xref_from_svc) + ':' + str(function_block)
-            starting_points.append(svcxref_functionblock)
+            coixref_functionblock = str(xref_from_coi) + ':' + str(function_block)
+            starting_points.append(coixref_functionblock)
         starting_points = list(set(starting_points))
         
-        # For each call to SVC, get the call chain.
+        # For each call to the COI, get the call chain.
         for starting_point in starting_points:
-            self.get_chain(starting_point, '', all_svc_chains, fblock_list)
+            self.get_chain(starting_point, '', all_coi_chains, fblock_list)
         
-        if len(all_svc_chains) == 0:
-            logging.info('No SVC chains identified.')
-            return (all_svc_chains, fblock_list)
+        if len(all_coi_chains) == 0:
+            logging.info('No COI chains identified.')
+            return (all_coi_chains, fblock_list)
             
-        all_svc_chains.sort()
+        all_coi_chains.sort()
         
-        debug_msg = 'SVC chains:\n'
-        for item in all_svc_chains:
+        debug_msg = 'COI chains:\n'
+        for item in all_coi_chains:
             debug_msg += '\t\t\t\t' + str(item) + '\n'
         logging.debug(debug_msg)
         
         if store == True:
-            common_objs.svc_chains = all_svc_chains
+            common_objs.coi_chains = all_coi_chains
         else:
-            return (all_svc_chains, fblock_list)
+            return (all_coi_chains, fblock_list)
     
     def get_chain(self, xref_fblock, chain, output_list, fblock_list):
         if chain == '':
@@ -179,8 +241,8 @@ class SvcAnalyser:
                 
     def find_starting_points_from_chains(self, store=True):
         all_start_points = []
-        for svc_chain in common_objs.svc_chains:
-            start_point = svc_chain.split(',')[-1]
+        for coi_chain in common_objs.coi_chains:
+            start_point = coi_chain.split(',')[-1]
             if start_point.strip() == '':
                 continue
             all_start_points.append(start_point)
@@ -209,93 +271,36 @@ class SvcAnalyser:
             common_objs.potential_start_points = ordered_start_points
         else:
             return ordered_start_points
-        
-    def get_svc_num(self, svc_name):
-        if ((common_objs.svc_set != None) and 
-                (common_objs.svc_set != {})):
-            if svc_name in common_objs.svc_set:
-                svc_num = common_objs.svc_set[svc_name]
-                return svc_num
-        else:
-            return self.chipset_analyser.get_svc_num(svc_name)
-        
-    def get_svc_files(self):
-        svc_files = []
-        vendor_dir = os.path.join(
+
+    def get_arg_files(self):
+        arg_files = []
+        arg_dir = os.path.join(
             common_paths.resources_path,
             'vendor',
             common_objs.vendor,
-            'svc'
+            'args'
         )
-        for root, dirs, filenames in os.walk(vendor_dir):
+        for root, dirs, filenames in os.walk(arg_dir):
             for filename in filenames:
                 if filename.endswith('.json'):
-                    svc_files.append(os.path.join(root, filename))
-        return svc_files
-        
-    def process_svc_chains(self):
-        self.output_object = {
-            'output': {},
-            'memory': {},
-            'svcs': []
-        }
-        
-        # Get all SVC chains.
-        svc_list = self.get_svc_files()
-        if len(svc_list) == 0:
-            logging.critical('No SVC definition files found!')
-            return
+                    arg_files.append(os.path.join(root, filename))
+        return arg_files
 
-        processing_object = {}
-        all_fblocks = []
-        for svc_file in svc_list:
-            svc_name = (os.path.basename(svc_file)).replace('.json', '')
-            # Get the SVC identifier.
-            svc_num = self.get_svc_num(svc_name)
-            if svc_num == None:
-                continue
-            # Get call chains.
-            (svc_chains, fblocks) = self.find_all_svc_chains(
-                svc_call=int(svc_num, 16),
-                store=False
-            )
-            if len(svc_chains) > 0:
-                self.output_object['svcs'].append(svc_name)
-            processing_object[svc_name] = svc_chains
-            for fblock in fblocks:
-                if fblock not in all_fblocks:
-                    all_fblocks.append(fblock)
-        # Combine the outputs, to reduce trace time.
-        combined_trace_object = self.combine_svc_traces(processing_object)
-        
-        # Save the function blocks in common_objs, so that we don't 
-        #  accidentally blacklist them.
-        common_objs.svc_function_blocks = all_fblocks
-        
-        # Get output from register trace.
-        unhandled = self.reg_eval.estimate_reg_values_for_trace_object(
-            combined_trace_object,
-            self
-        )
-        self.output_object['unhandled'] = unhandled
-        # Process according to SVC definitions.
-        return self.output_object
-        
-    def combine_svc_traces(self, all_svc_object):
+    def combine_coi_traces(self, all_coi_object):
         output_object = {}
-        for svc_name in all_svc_object:
-            list_svc_chain = all_svc_object[svc_name]
-            for svc_chain in list_svc_chain:
+        for coi_name in all_coi_object:
+            list_coi_chain = all_coi_object[coi_name]
+            for coi_chain in list_coi_chain:
                 output_object = self.add_chain_to_trace_object(
                     output_object,
-                    svc_chain,
-                    svc_name
+                    coi_chain,
+                    coi_name
                 )
         return output_object
     
-    def add_chain_to_trace_object(self, output_object, svc_chain, svc_name):
+    def add_chain_to_trace_object(self, output_object, coi_chain, coi_name):
         combined_object = output_object
-        chain_elements = svc_chain.split(',')
+        chain_elements = coi_chain.split(',')
         chain_elements.reverse()
         while len(chain_elements) > 0:
             ins_address = int(chain_elements[0].split(':')[0])
@@ -309,12 +314,12 @@ class SvcAnalyser:
             if ins_address not in working_object:
                 working_object[ins_address] = {
                     'is_end': False,
-                    'svc_name': None,
+                    'coi_name': None,
                     'branch_target': {}
                 }
             if len(chain_elements) == 1:
                 working_object[ins_address]['is_end'] = True
-                working_object[ins_address]['svc_name'] = svc_name
+                working_object[ins_address]['coi_name'] = coi_name
             combined_object = working_object[ins_address]['branch_target']
             chain_elements = chain_elements[1:]
         return output_object
@@ -337,12 +342,13 @@ class SvcAnalyser:
                     )
         return output_object
         
+    """ ================== Argument processing ================== """
     def process_trace_output(self, trace_output):
-        svc_name = list(trace_output.keys())[0]
-        if svc_name not in self.output_object['output']:
-            self.output_object['output'][svc_name] = []
+        coi_name = list(trace_output.keys())[0]
+        if coi_name not in self.output_object['output']:
+            self.output_object['output'][coi_name] = []
 
-        # Match up with SVC definitions per output item.
+        # Match up with COI definitions per output item.
         for item in trace_output:
             # First assign all existing memory addresses.
             # Otherwise we lose this information.
@@ -351,19 +357,19 @@ class SvcAnalyser:
                 trace_output[item]['memory']
             )
             
-            # Now match SVC definition.
-            output_item = self.match_svc_definition(
-                trace_output[svc_name],
-                svc_name
+            # Now match COI definition.
+            output_item = self.match_coi_definition(
+                trace_output[coi_name],
+                coi_name
             )
             is_object_already_present = False
-            for element in self.output_object['output'][svc_name]:
+            for element in self.output_object['output'][coi_name]:
                 if element == output_item['output']:
                     is_object_already_present = True
                     break
             if is_object_already_present == False:
-                self.output_object['output'][svc_name].append(output_item['output'])
-            # If SVC definition had output values to update in memory,
+                self.output_object['output'][coi_name].append(output_item['output'])
+            # If COI definition had output values to update in memory,
             #  do that now.
             self.output_object['memory'] = self.update_memory(
                 self.output_object['memory'],
@@ -371,13 +377,14 @@ class SvcAnalyser:
             )
         return self.output_object['memory']
     
-    def match_svc_definition(self, memory_regs, svc_name):
-        svc_file = os.path.join(
-            self.svc_definition_dir,
-            svc_name + '.json'
+    def match_coi_definition(self, memory_regs, coi_name):
+        arg_file = os.path.join(
+            common_paths.vendor_path,
+            'args',
+            coi_name + '.json'
         )
-        with open(svc_file) as f:
-            svc_definitions = json.load(f)
+        with open(arg_file) as f:
+            coi_definitions = json.load(f)
             
         register = ARM_REG_R0
         stack_pointer = self.reg_eval.get_register_bytes(
@@ -389,7 +396,7 @@ class SvcAnalyser:
             'output': {},
             'memory': {}
         }
-        for arg in svc_definitions['args']:
+        for arg in coi_definitions['args']:
             val = self.reg_eval.get_register_bytes(
                 memory_regs['registers'],
                 register
@@ -404,7 +411,7 @@ class SvcAnalyser:
             register += 1
             # Process the value, according to the definition.
             output_object = self.process_argument(
-                svc_definitions['args'][arg],
+                coi_definitions['args'][arg],
                 memory_regs,
                 val,
                 output_object

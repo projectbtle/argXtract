@@ -22,14 +22,14 @@ class RegisterEvaluator:
     def __init__(self):
         self.start_time = None
         
-    def estimate_reg_values_for_trace_object(self, trace_obj, svc_instance): 
+    def estimate_reg_values_for_trace_object(self, trace_obj, coi_processor_instance): 
         logging.info('Starting register trace.')
         
         logging.debug('Trace object:\n' + json.dumps(trace_obj, indent=4))
         
         self.start_time = timeit.default_timer()
         
-        self.svc_analyser = svc_instance
+        self.coi_processor = coi_processor_instance
         self.master_trace_obj = trace_obj
         
         # Get all instruction addresses.
@@ -181,10 +181,10 @@ class RegisterEvaluator:
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
                 return
             
-            # If we have arrived at an end point, i.e., an SVC call, then
-            #  send the registers and memory map to SVC Analyser, to process.
+            # If we have arrived at an end point, i.e., a COI, then
+            #  send the registers and memory map to COI Processor, to process.
             if ins_address in end_points:
-                svc_name = end_point_obj[ins_address]
+                coi_name = end_point_obj[ins_address]
                 memory_map = {
                     key:memory_map[key] 
                         for key in sorted(memory_map.keys())
@@ -201,7 +201,7 @@ class RegisterEvaluator:
                 
                 logging.debug(
                     'Endpoint reached for '
-                    + svc_name
+                    + coi_name
                     + ' at '
                     + hex(ins_address)
                     + '!\n'
@@ -212,8 +212,8 @@ class RegisterEvaluator:
                 )
 
                 # Process the output and get updated memory map.
-                memory_map = self.svc_analyser.process_trace_output(
-                    {svc_name:out_obj}
+                memory_map = self.coi_processor.process_trace_output(
+                    {coi_name:out_obj}
                 )
                 memory_map = {
                     key:memory_map[key] 
@@ -221,7 +221,8 @@ class RegisterEvaluator:
                 }
                 end_points.remove(ins_address)
                 
-                # Output of SVC Call is an error code stored in register r0.
+                # Output of SVC is an error code stored in register r0.
+                # Output of function call is unknown.
                 #  We assume 0, i.e., no error.
                 register_object = self.store_register_bytes(
                     register_object,
@@ -229,7 +230,7 @@ class RegisterEvaluator:
                     '00000000'
                 )
                 # We've done all the processing we want to, 
-                #  for the SVC Call instruction.
+                #  for the COI call instruction.
                 # So continue to next instruction.
                 continue
 
@@ -316,7 +317,7 @@ class RegisterEvaluator:
         for address in branch_points:
             if branch_or_end_points[address]['is_end'] == True:
                 end_point_obj[address] = \
-                    branch_or_end_points[address]['svc_name']
+                    branch_or_end_points[address]['coi_name']
         end_points = list(end_point_obj.keys())
         end_points.sort()
         return (branch_points, end_points, end_point_obj)
@@ -349,9 +350,9 @@ class RegisterEvaluator:
         elif opcode_id in [ARM_INS_CBZ, ARM_INS_CBNZ]:
             branch_target = operands[1].value.imm
         
-        # If branch_target is black-listed, don't proceed.
-        if ((branch_target in common_objs.blacklisted_functions) 
-                and (branch_target not in common_objs.svc_function_blocks)):
+        # If branch_target is denylisted, don't proceed.
+        if ((branch_target in common_objs.denylisted_functions) 
+                and (branch_target not in common_objs.coi_function_blocks)):
             executed_branch = False
             should_execute_next_instruction = True
             return (executed_branch, should_execute_next_instruction)
@@ -510,10 +511,10 @@ class RegisterEvaluator:
         )
         logging.debug('Target function block: ' + hex(target_function_block))
         # If the target contains a perpetual self-loop, 
-        #  it will have been blacklisted.
-        if ((target_function_block in common_objs.blacklisted_functions)
-                and (target_function_block not in common_objs.svc_function_blocks)):
-            logging.debug('Target function block has been blacklisted.')
+        #  it will have been denylisted.
+        if ((target_function_block in common_objs.denylisted_functions)
+                and (target_function_block not in common_objs.coi_function_blocks)):
+            logging.debug('Target function block has been denylisted.')
             return (False, None)
         
         # The Reset Handler has a lot of self-looping. Avoid.
@@ -4431,7 +4432,7 @@ class RegisterEvaluator:
         # We don't want to create huge memory maps,
         #  so process only if length is lower than a certain value.
         # We choose the length as the maximum length specified in 
-        #  SVC definitions.
+        #  COI definitions.
         if length > 64:
             logging.debug(
                 'Over-large value for length '

@@ -1,14 +1,14 @@
 # Chipset Analysis Code
 
 The file `argxtract/resources/vendor/<vendor>/chipset_analyser.py` must have a class `VendorChipsetAnalyser`, with the following methods:
-* `test_chipset`
+* `test_binary_against_vendor`
 * `generate_output_metadata`
 * `reset`
 * `get_svc_num`
 
 The expected functionality for each of these methods is described in this page.
 
-## Functionality of `test_chipset`
+## Functionality of `test_binary_against_vendor`
 This function takes as input the path to the firmware file that is under test. It must test the file to determine whether it matches the expected pattern. How this is done will depend on the vendor/chipset and is left up to you. The only requirement is that this function must set certain common values in `argxtract.common.objects` that will be used by other components of the tool:
 * `app_code_base` - Application code base. Chipset-specific.
 * `disassembly_start_address` - Normally the same as `app_code_base`. However, if the firmware is self-contained, i.e., contains the platform _and_ application code, then the `disassembly_start_address` will be `0x00000000`.
@@ -38,24 +38,16 @@ class VendorChipsetAnalyser:
     def __init__(self):
         pass
         
-    def test_chipset(self, path_to_firmware_file):
+    def test_binary_against_vendor(self, path_to_firmware_file):
         <vendor-specific tests>
         
         if tests_failed:
             return False
         
-        common_objs.app_code_base = 0x0001b000
-        common_objs.disassembly_start_address = common_objs.app_code_base
         common_objs.vector_table_size = 0xc0
-        common_objs.application_vector_table = {
-            'initial_sp': 0x20008000,
-            'reset': 0x00800000
-        }
         common_objs.code_start_address = common_objs.app_code_base + common_objs.vector_table_size
-        common_objs.ram_base = 0x20002000
-        common_objs.ram_length = 0x00008000
         
-        common_objs.svc_set = {
+        common_objs.vendor_svc_set = {
             "svc_name1": 0xa0,
             "svc_name2": 0xa1
         }

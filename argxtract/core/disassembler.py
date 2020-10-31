@@ -20,18 +20,118 @@ class FirmwareDisassembler:
     def __init__(self):
         self.reg_eval = RegisterEvaluator()
         
-    def create_disassembled_obj(self, store=True):
+    def estimate_app_code_base(self):
+        # Get AVT
+        self.read_vector_table()
+
+        """ This is quite a hacky way of doing things, but with stripped 
+            binaries, we have very little to go on. 
+            We first get the addresses for interrupt handlers from vector table. 
+            We then look for all branch statements with <self> as target address.
+            We then compare the last 3 hex values of addresses, and get matches.
+            App code base is then 
+                (vector_table_entry_address - self_targeting_branch_address)
+        """
+        
+        # Initialise app code base.
+        app_code_base = 0x00000000
+        
+        # Populate interrupt handler addresses.
+        interrupt_handlers = []
+        for key in common_objs.application_vector_table:
+            if key in ['initial_sp', 'reset']:
+                continue
+            address = hex(common_objs.application_vector_table[key])
+            interrupt_handlers.append(address)
+        
+        # Populate self-targeting branch addresses.
+        self_targeting_branches = []
+        disassembled = self.create_disassembled_object(store=False)
+        for ins_address in disassembled:
+            if disassembled[ins_address]['is_data'] == True:
+                continue
+                
+            insn = disassembled[ins_address]['insn']
+            if insn == None: continue
+            opcode_id = insn.id
+            
+            # Check whether the opcode is for a branch instruction at all.
+            if opcode_id not in [ARM_INS_BL, ARM_INS_B]:
+                continue
+            
+            target_address_int = insn.operands[0].value.imm
+            target_address = hex(target_address_int)
+            if target_address_int == ins_address:
+                self_targeting_branches.append(target_address)
+        disassembled = None
+        
+        if len(self_targeting_branches) == 0:
+            logging.debug(
+                'No self-targeting branches. App code base cannot be determined.'
+            )
+
+        # Check the self-targeting branches against interrupt handlers.
+        # Hopefully there isn't more than one match.
+        possible_code_bases = []
+        for interrupt_handler in interrupt_handlers:
+            for self_targeting_branch in self_targeting_branches:
+                if (self_targeting_branch.replace('0x', ''))[-3:] in interrupt_handler:
+                    app_code_base = \
+                        int(interrupt_handler, 16) - int(self_targeting_branch, 16)
+                    if app_code_base not in possible_code_bases:
+                        possible_code_bases.append(app_code_base)
+        
+        if len(possible_code_bases) > 1:
+            logging.error('More than one possibility for app code base.')
+            app_code_base = 0x00000000
+            
+        common_objs.app_code_base = app_code_base
+        common_objs.disassembly_start_address = common_objs.app_code_base
+        common_objs.code_start_address = common_objs.app_code_base + (4*15)
+        
+        if app_code_base == 0x00000000:
+            debug_msg = 'Could not estimate app code base.'
+        else:
+            debug_msg = 'App code base estimated as: ' + hex(app_code_base)
+        logging.info(debug_msg)
+        
+    def read_vector_table(self, base=0):
+        application_vector_table = {}
+        image_file = open(common_paths.path_to_fw, 'rb')
+        for avt_entry in consts.AVT.keys():
+            image_file.seek(0)
+            image_file.seek(base+consts.AVT[avt_entry])
+            vector_table_entry = struct.unpack('<I', image_file.read(4))[0]
+            if vector_table_entry == 0x00000000:
+                continue
+            if vector_table_entry%2 == 1:
+                vector_table_entry -= 1
+            application_vector_table[avt_entry] = vector_table_entry
+        
+        common_objs.application_vector_table = application_vector_table
+        debug_msg = 'Partial Application Vector Table:'
+        for avt_entry in application_vector_table:
+            debug_msg += '\n\t\t\t\t' \
+                         + avt_entry \
+                         + ': ' \
+                         + hex(application_vector_table[avt_entry]) 
+        logging.info(debug_msg)
+    
+    def create_disassembled_object(self, store=True):
         disassembled_fw = self.disassemble_fw()
 
         # This is for the initial fw checks.
-        if store!= True:
+        if store != True:
             return disassembled_fw
             
+        common_objs.disassembled_firmware = disassembled_fw
+        disassembled_fw = None
+        
+    def identify_inline_data(self):    
         # Add dummy keys, to handle Capstone issues.
         disassembled_firmware_with_dummy_keys = self.add_dummy_keys(
-            disassembled_fw
+            common_objs.disassembled_firmware
         )
-        disassembled_fw = None
         
         # Now add firmware to common_objs.
         common_objs.disassembled_firmware = disassembled_firmware_with_dummy_keys
@@ -48,6 +148,7 @@ class FirmwareDisassembler:
         # Check again for inline data, but this time using inline addresses.
         self.check_inline_address_instructions()
         
+    def annotate_links(self):
         # Create backlinks.
         common_objs.disassembled_firmware = self.check_valid_branches(
             common_objs.disassembled_firmware
@@ -179,7 +280,7 @@ class FirmwareDisassembler:
                 continue
             
             # If the instruction is not a valid LDR instruction, then don't bother.
-            if self.check_valid_pc_ldr(insn) != True:
+            if self.check_valid_pc_ldr(ins_address) != True:
                 continue
             curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address)
                 
@@ -249,8 +350,6 @@ class FirmwareDisassembler:
         reset_handler_address = common_objs.application_vector_table['reset']
         address = reset_handler_address - 2
         max_address = address + 30
-        ram_min = common_objs.ram_base
-        ram_max = ram_min + common_objs.ram_length
         data_start_firmware_address = ''
         data_start_real_address = ''
         while address < max_address:
@@ -280,7 +379,7 @@ class FirmwareDisassembler:
             if common_objs.disassembled_firmware[address]['is_data'] == True:
                 break
                 
-            if self.check_valid_pc_ldr(insn) != True:
+            if self.check_valid_pc_ldr(address) != True:
                 continue
                 
             if insn.id == ARM_INS_LDR:
@@ -307,15 +406,11 @@ class FirmwareDisassembler:
                         'Possible start of .data is at: ' 
                         + hex(ldr_value)
                     )
-                elif((ldr_value >= ram_min) and (ldr_value <= ram_max)):
-                    if data_start_real_address == '':
-                        data_start_real_address = ldr_value
-                    else:
-                        # We will use smallest value as address.
-                        if ldr_value > data_start_real_address:
-                            continue
-                        else:
-                            data_start_real_address = ldr_value
+                else:
+                    # The LDR from address in firmware precedes LDR from RAM.
+                    if data_start_firmware_address == '':
+                        continue
+                    data_start_real_address = ldr_value
                     logging.debug(
                         'Possible start address for .data: ' 
                         + hex(ldr_value)
@@ -396,7 +491,10 @@ class FirmwareDisassembler:
         
         return data_bytes
         
-    def check_valid_pc_ldr(self, insn):
+    def check_valid_pc_ldr(self, ins_address):
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
+        if insn == None: return False
+        
         if (insn.id not in [ARM_INS_LDR, ARM_INS_LDRB, ARM_INS_LDRH,
                 ARM_INS_LDRSB, ARM_INS_LDRSH]):
             return False
@@ -409,6 +507,7 @@ class FirmwareDisassembler:
             )
             return False
             
+        # If it's not PC-relative address, return false.
         if operands[1].value.reg != ARM_REG_PC:
             return False
             
@@ -447,7 +546,7 @@ class FirmwareDisassembler:
                 continue
             
             # If the instruction is not a valid LDR instruction, then don't bother.
-            if self.check_valid_pc_ldr(insn) != True:
+            if self.check_valid_pc_ldr(ins_address) != True:
                 continue
             if insn.id != ARM_INS_LDR:
                 continue
