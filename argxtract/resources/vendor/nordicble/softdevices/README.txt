@@ -1,0 +1,1 @@
+Download all SoftDevices available from Nordic into this folder.

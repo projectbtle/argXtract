@@ -1,0 +1,505 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "length": 2,
+            "data": {
+                "service_handle": {
+                    "ptr_val": "value",
+                    "length_bits": 16,
+                    "type": "hex"
+                }
+            },
+            "dtype": "hex",
+            "ntype": "uint16_t"
+        },
+        "1": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "length": 16,
+            "data": {
+                "p_char_md": {
+                    "ptr_val": "value",
+                    "length_bits": 128,
+                    "type": "dict",
+                    "data": {
+                        "char_props": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "bitfield",
+                            "data": {
+                                "ignore": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "auth_signed_wr": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "indicate": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "notify": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "write": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "write_wo_resp": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "read": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "broadcast": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "char_ext_props": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "bitfield",
+                            "data": {
+                                "wr_aux": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "reliable_wr": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "p_char_user_desc": {
+                            "ptr_val": "pointer",
+                            "length_bits": 8,
+                            "type": "uint8"
+                        },
+                        "char_user_desc_max_size": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "char_user_desc_size": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "p_char_pf": {
+                            "ptr_val": "pointer",
+                            "length_bits": 56,
+                            "type": "dict",
+                            "data": {
+                                "format": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "uint8"
+                                },
+                                "exponent": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "int8"
+                                },
+                                "unit": {
+                                    "ptr_val": "value",
+                                    "length_bits": 16,
+                                    "type": "uint16"
+                                },
+                                "name_space": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "uint8"
+                                },
+                                "desc": {
+                                    "ptr_val": "value",
+                                    "length_bits": 16,
+                                    "type": "uint16"
+                                }
+                            }
+                        },
+                        "p_user_desc_md": {
+                            "ptr_val": "pointer",
+                            "length_bits": 24,
+                            "type": "bitfield",
+                            "data": {
+                                "read_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "write_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "ignore": {
+                                    "ptr_val": "value",
+                                    "length_bits": 3,
+                                    "type": "uint8"
+                                },
+                                "wr_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "rd_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "vloc": {
+                                    "ptr_val": "value",
+                                    "length_bits": 2,
+                                    "type": "uint8"
+                                },
+                                "vlen": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "p_cccd_md": {
+                            "ptr_val": "pointer",
+                            "length_bits": 24,
+                            "type": "bitfield",
+                            "data": {
+                                "read_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "write_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "ignore": {
+                                    "ptr_val": "value",
+                                    "length_bits": 3,
+                                    "type": "uint8"
+                                },
+                                "wr_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "rd_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "vloc": {
+                                    "ptr_val": "value",
+                                    "length_bits": 2,
+                                    "type": "uint8"
+                                },
+                                "vlen": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "p_sccd_md": {
+                            "ptr_val": "pointer",
+                            "length_bits": 24,
+                            "type": "bitfield",
+                            "data": {
+                                "read_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "write_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "ignore": {
+                                    "ptr_val": "value",
+                                    "length_bits": 3,
+                                    "type": "uint8"
+                                },
+                                "wr_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "rd_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "vloc": {
+                                    "ptr_val": "value",
+                                    "length_bits": 2,
+                                    "type": "uint8"
+                                },
+                                "vlen": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "dtype": "hex",
+            "ntype": "ble_gatts_char_md_t"
+        },
+        "2": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "length": 18,
+            "data": {
+                "p_attr_char_value": {
+                    "ptr_val": "value",
+                    "length_bits": 144,
+                    "type": "dict",
+                    "data": {
+                        "p_uuid": {
+                            "ptr_val": "pointer",
+                            "length_bits": 24,
+                            "type": "dict",
+                            "data": {
+                                "uuid": {
+                                    "ptr_val": "value",
+                                    "length_bits": 16,
+                                    "type": "hex"
+                                },
+                                "type": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "p_attr_md": {
+                            "ptr_val": "pointer",
+                            "length_bits": 24,
+                            "type": "bitfield",
+                            "data": {
+                                "read_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "write_perm": {
+                                    "ptr_val": "value",
+                                    "length_bits": 8,
+                                    "type": "dict",
+                                    "data": {
+                                        "security_level": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        },
+                                        "security_mode": {
+                                            "ptr_val": "value",
+                                            "length_bits": 4,
+                                            "type": "uint8"
+                                        }
+                                    }
+                                },
+                                "ignore": {
+                                    "ptr_val": "value",
+                                    "length_bits": 3,
+                                    "type": "uint8"
+                                },
+                                "wr_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "rd_auth": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                },
+                                "vloc": {
+                                    "ptr_val": "value",
+                                    "length_bits": 2,
+                                    "type": "uint8"
+                                },
+                                "vlen": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "init_len": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "init_offs": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "max_len": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "p_value": {
+                            "ptr_val": "pointer",
+                            "length_bits": "init_len * 8",
+                            "byte-endian": "big",
+                            "type": "hex"
+                        }
+                    }
+                }
+            },
+            "dtype": "hex"
+        },
+        "3": {
+            "in_out": "out",
+            "ptr_val": "pointer",
+            "length": 8,
+            "data": {
+                "p_handles": {
+                    "ptr_val": "value",
+                    "length_bits": 64,
+                    "type": "dict",
+                    "data": {
+                        "value_handle": {
+                            "ptr_val": "pointer",
+                            "length_bits": 16,
+                            "type": "hex",
+                            "store_type": "random",
+                            "output": true
+                        },
+                        "user_desc_handle": {
+                            "ptr_val": "pointer",
+                            "length_bits": 16,
+                            "type": "hex",
+                            "store_type": "random",
+                            "output": true
+                        },
+                        "cccd_handle": {
+                            "ptr_val": "pointer",
+                            "length_bits": 16,
+                            "type": "hex",
+                            "store_type": "random",
+                            "output": true
+                        },
+                        "sccd_handle": {
+                            "ptr_val": "pointer",
+                            "length_bits": 16,
+                            "type": "hex",
+                            "store_type": "random",
+                            "output": true
+                        }
+                    }
+                }
+            },
+            "dtype": "hex"
+        } 
+    }
+}
