@@ -180,19 +180,8 @@ class FunctionEvaluator:
                 common_objs.application_vector_table[intrpt]
             )
         # Add self-targeting branches.
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address < common_objs.code_start_address:
-                continue
-            if ins_address in common_objs.errored_instructions:
-                continue
-            at_address = common_objs.disassembled_firmware[ins_address]
-            if at_address['is_data'] == True:
-                continue
-            if at_address['insn'].id == ARM_INS_B:
-                branch_target = at_address['insn'].operands[0].value.imm
-                if branch_target == ins_address:
-                    if ins_address not in function_block_start_addresses:
-                        function_block_start_addresses.append(ins_address)
+        for ins_address in common_objs.self_targeting_branches:
+            function_block_start_addresses.append(ins_address)
         return function_block_start_addresses
  
     def check_branch_tos(self, function_block_start_addresses):
@@ -208,6 +197,11 @@ class FunctionEvaluator:
         
     def check_branch_tos_at_certainty_level(self, function_block_start_addresses,
                                             certainty_level):
+        logging.debug(
+            'Checking for functions at certainty level ' 
+            + certainty_level
+        )
+        functions = []
         for ins_address in common_objs.disassembled_firmware:
             if ins_address in common_objs.errored_instructions:
                 continue
@@ -264,8 +258,11 @@ class FunctionEvaluator:
                 
             if is_candidate != True:
                 continue
-                
-            # If we're at high certainty, then the function block list
+            
+            if branch_address not in function_block_start_addresses:
+                function_block_start_addresses.append(branch_address)
+                functions.append(hex(branch_address))
+            """# If we're at high certainty, then the function block list
             #  would have started out empty. Just add the addresses.
             if certainty_level == 'high':
                 if branch_address not in function_block_start_addresses:
@@ -277,7 +274,14 @@ class FunctionEvaluator:
                     boundary=10
                 )
                 if preexists == False:
-                    function_block_start_addresses.append(branch_address)
+                    function_block_start_addresses.append(branch_address)"""   
+        functions.sort()
+        logging.debug(
+            'Functions identified at certainty level '
+            + certainty_level
+            + ' '
+            + str(functions)
+        )                
         return function_block_start_addresses
 
     def check_fb_candidate_high_certainty(self, disassembled_fw, branch_address):
@@ -516,6 +520,9 @@ class FunctionEvaluator:
                 continue
             if ins_address in common_objs.denylisted_functions:
                 continue
+            # memset would have call depth of 0.
+            if common_objs.function_blocks[ins_address]['call_depth'] > 0:
+                continue
             if 'xref_from' not in common_objs.disassembled_firmware[ins_address]:
                 continue
             # memset would be BL.
@@ -525,7 +532,7 @@ class FunctionEvaluator:
                 insn_id = common_objs.disassembled_firmware[xref]['insn'].id
                 if insn_id == ARM_INS_BL:
                     bl_xrefs.append(xref)
-            if len(bl_xrefs) < 2: continue
+            if len(bl_xrefs) < 1: continue # There are instances where there is only a single call to memset.
             start_address = ins_address
             end_address = utils.id_function_block_end(start_address)
             (is_memset, reg_order, fixed_value) = self.check_for_memset(
@@ -551,6 +558,7 @@ class FunctionEvaluator:
             return (None, None, None)
         if len(possible_memsets) > 1: 
             logging.warning('Multiple candidates for memset. Using None.')
+            print(possible_memsets)
             return (None, None, None)
         memset_address = possible_memsets[0][0]
         logging.info(
@@ -596,8 +604,38 @@ class FunctionEvaluator:
         is_memset = False
         fixed_value = None
         address = start_address
-        # Prelim checks. STRB must be present.
+        end_address = utils.id_function_block_end(start_address)
+        # Prelim checks. STRB, CMP and either ADD or SUB must be present.
         is_strb = False
+        is_cmp = False
+        is_self_branch = False
+        while address <= end_address:
+            if address in common_objs.self_targeting_branches:
+                is_self_branch = True
+                break
+                
+            current_position = common_objs.disassembled_firmware[address]
+            if ((current_position['is_data'] == True) 
+                    or (current_position['insn'] == None)):
+                address = self.get_next_address(self.all_addresses, address)
+                continue
+                
+            insn = current_position['insn']
+            if insn.id == ARM_INS_STRB:
+                is_strb = True
+            if insn.id == ARM_INS_CMP:
+                is_cmp = True
+                
+            address = self.get_next_address(self.all_addresses, address)
+            
+        # Memset doesn't have self-targeting branches.
+        if is_self_branch == True: return (False, None, None)
+        # If there isn't a STRB or CMP instruction, we needn't look any further.
+        if ((is_strb == False) or (is_cmp == False)): 
+            return (False, None, None)
+        
+        # Create an ordered set of instructions.
+        address = start_address
         ins_count = 0
         ins_order = [address]
         while ins_count < 10:
@@ -610,9 +648,6 @@ class FunctionEvaluator:
                 continue
                 
             insn = current_position['insn']
-            if insn.id == ARM_INS_STRB:
-                is_strb = True
-                break
             if (insn.id == ARM_INS_B):
                 address = insn.operands[0].value.imm
                 if address not in common_objs.disassembled_firmware:
@@ -622,8 +657,6 @@ class FunctionEvaluator:
                 
             ins_count += 1
             ins_order.append(address)
-        # If there isn't a STRB instruction, we needn't look any further.
-        if is_strb == False: return (is_memset, None, fixed_value)
         
         # Now go through the instructions in order, keeping track
         #  of registers.

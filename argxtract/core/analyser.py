@@ -225,6 +225,7 @@ class FirmwareAnalyser:
         common_objs.ram_length = 0x00000000
         common_objs.vector_table_size = 0
         common_objs.application_vector_table = {}
+        common_objs.self_targeting_branches = []
         common_objs.vendor_svc_set = {}
         common_objs.core_bytes = None
         common_objs.disassembled_firmware = {}

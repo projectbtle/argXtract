@@ -1,0 +1,45 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "length": 1,
+            "data": {
+                "pstChannelEnable": {
+                    "ptr_val": "value",
+                    "length_bits": 80,
+                    "type": "dict",
+                    "data": {
+                        "ucTotalNumberOfChannels": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "uint8"
+                        },
+                        "ucNumberOfEncryptedChannels": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "uint8"
+                        },
+                        "usNumberOfEvents": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "pucMemoryBlockStartLocation": {
+                            "ptr_val": "pointer",
+                            "length_bits": 32,
+                            "type": "uint8"
+                        },
+                        "usMemoryBlockByteSize": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        }
+                    }
+                }
+            },
+            "dtype": "hex",
+            "ntype": "uint8_t"
+        }
+    }
+}

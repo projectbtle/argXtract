@@ -2350,7 +2350,12 @@ class RegisterEvaluator:
         elif opcode_id in [ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH]:
             num_bytes = 2
         if src_memory_address % num_bytes != 0:
-            logging.warning('Misaligned LDR/H')
+            logging.warning(
+                'Misaligned LDR/H. Ins address ' 
+                + hex(ins_address) 
+                + ' and LDR src address '
+                + hex(src_memory_address)
+            )
         num_halfbytes = int(num_bytes*2)
         
         (src_value, null_value) = self.get_value_from_memory(

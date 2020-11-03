@@ -26,6 +26,7 @@ ram_base = 0x00000000
 ram_length = 0x00000000
 vector_table_size = 0
 application_vector_table = {}
+self_targeting_branches = []
 core_bytes = None
 disassembled_firmware = {}
 data_region = {}

@@ -12,7 +12,7 @@ from argxtract.core import utils
 from argxtract.core import consts
 from argxtract.common import objects as common_objs
 from argxtract.core.disassembler import FirmwareDisassembler
-from argxtract.resources.vendor.nordic_ble_ant import consts as nordic_consts
+from argxtract.resources.vendor.nordic_ble import consts as nordic_consts
 
 
 class VendorChipsetAnalyser:

@@ -288,28 +288,28 @@ class argxtract:
         )
         outfile = open('status.csv', 'w')
         for fw_file in self.core_file_list:
-            try:
-                # Get hash of file bytes.
-                filebytes = open(fw_file, 'rb').read()
-                m = hashlib.sha256(filebytes)
-                # Don't waste resources by keeping file bytes in memory.
-                filebytes = None
-                # Get digest value.
-                digest = m.hexdigest()
-                outputfilename = './output/' + digest + '.json'
-                # Get analysis output.
-                output = firmware_analyser.analyse_firmware(fw_file)
-                if output == None:
-                    outfile.write(fw_file + ',None\n')
-                    outfile.flush()
-                # Write to file.
-                with open(outputfilename, 'w') as f: 
-                    json.dump(output, f, indent=4)
-                outfile.write(fw_file + ',Completed,None\n')
+            ###try:
+            # Get hash of file bytes.
+            filebytes = open(fw_file, 'rb').read()
+            m = hashlib.sha256(filebytes)
+            # Don't waste resources by keeping file bytes in memory.
+            filebytes = None
+            # Get digest value.
+            digest = m.hexdigest()
+            outputfilename = './output/' + digest + '.json'
+            # Get analysis output.
+            output = firmware_analyser.analyse_firmware(fw_file)
+            if output == None:
+                outfile.write(fw_file + ',None\n')
                 outfile.flush()
-            except Exception as e:
-                outfile.write(fw_file + ',Error,' + str(e) + '\n')
-                outfile.flush()
+            # Write to file.
+            with open(outputfilename, 'w') as f: 
+                json.dump(output, f, indent=4)
+            outfile.write(fw_file + ',Completed,None\n')
+            outfile.flush()
+            ###except Exception as e:
+            ###    outfile.write(fw_file + ',Error,' + str(e) + '\n')
+            ###    outfile.flush()
                 
     def execute_multiple_processes(self):
         # We don't want long messages in parallel threads.
