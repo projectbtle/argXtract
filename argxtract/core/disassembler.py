@@ -206,6 +206,27 @@ class FirmwareDisassembler:
         # Check again for inline data, but this time using inline addresses.
         self.check_inline_address_instructions()
         
+        # Trace
+        trace_msg = 'Final instructions: \n'
+        for address in common_objs.disassembled_firmware:
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
+                if 'data' not in common_objs.disassembled_firmware[address]:
+                    continue
+                data = common_objs.disassembled_firmware[address]['data']
+                trace_msg += '\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
+                                            hex(data),
+                                            'data',
+                                            '')
+            else:
+                insn = common_objs.disassembled_firmware[address]['insn']
+                bytes = insn.bytes
+                bytes = ''.join('{:02x}'.format(x) for x in bytes)
+                trace_msg += '\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
+                                            bytes,
+                                            insn.mnemonic,
+                                            insn.op_str)
+        logging.trace(trace_msg)
+        
     def annotate_links(self):
         # Create backlinks.
         common_objs.disassembled_firmware = self.check_valid_branches(
@@ -288,7 +309,7 @@ class FirmwareDisassembler:
         # Read in data from the Reset Handler.
         self.identify_data_segment_via_reset_handler()
         
-        self.handle_potential_vsli_errors()
+        self.handle_potential_byte_misinterpretation_errors()
         
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
@@ -407,7 +428,7 @@ class FirmwareDisassembler:
             else:
                 continue
 
-    def handle_potential_vsli_errors(self):
+    def handle_potential_byte_misinterpretation_errors(self):
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
@@ -419,40 +440,40 @@ class FirmwareDisassembler:
             # But it may also be Capstone incorrectly disassembling a word.
             if insn.id == ARM_INS_INVALID:
                 if (('byte' in insn.mnemonic) and (insn.bytes == b'\xff\xff')):
-                    vsli = self.handle_vsli(ins_address, insn)
-                    if vsli == True:
+                    byte_misinterpretation = \
+                        self.handle_byte_misinterpretation(ins_address, insn)
+                    if byte_misinterpretation == True:
                         continue
                 
-    def handle_vsli(self, ins_address, insn):
-        logging.debug('Handling potential incorrect vsli at ' + hex(ins_address))
+    def handle_byte_misinterpretation(self, ins_address, insn):
+        logging.debug('Handling potential incorrect .byte at ' + hex(ins_address))
         if ((ins_address + 2) in common_objs.disassembled_firmware):
             next_adr = common_objs.disassembled_firmware[ins_address+2]
             next_insn = next_adr['insn']
             if next_insn.id != ARM_INS_INVALID:
                 next_insn_bytes = next_insn.bytes
-                if 'vsli' in next_insn.mnemonic:
-                    next_insn = md.disasm(
-                        next_insn_bytes[0:2], 
-                        ins_address+2
-                    )
-                    for code_start_insn in next_insn:
-                        common_objs.disassembled_firmware[ins_address+2]['insn'] = \
-                            code_start_insn
-                        common_objs.disassembled_firmware[ins_address+2]['is_data'] = False
-                        break
-          
-                    next_insn = md.disasm(
-                        next_insn_bytes[2:4], 
-                        ins_address+4
-                    )
-                    for code_start_insn in next_insn:
-                        common_objs.disassembled_firmware[ins_address+4]['insn'] = \
-                            code_start_insn
-                        common_objs.disassembled_firmware[ins_address+4]['is_data'] = False
-                        break
-                    return True
-                else:
+                if len(next_insn_bytes) != 4:
                     return False
+                next_insn = md.disasm(
+                    next_insn_bytes[0:2], 
+                    ins_address+2
+                )
+                for code_start_insn in next_insn:
+                    common_objs.disassembled_firmware[ins_address+2]['insn'] = \
+                        code_start_insn
+                    common_objs.disassembled_firmware[ins_address+2]['is_data'] = False
+                    break
+      
+                next_insn = md.disasm(
+                    next_insn_bytes[2:4], 
+                    ins_address+4
+                )
+                for code_start_insn in next_insn:
+                    common_objs.disassembled_firmware[ins_address+4]['insn'] = \
+                        code_start_insn
+                    common_objs.disassembled_firmware[ins_address+4]['is_data'] = False
+                    break
+                return True
         return False
                         
     def identify_data_segment_via_reset_handler(self):

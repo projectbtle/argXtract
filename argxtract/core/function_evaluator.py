@@ -52,13 +52,13 @@ class FunctionEvaluator:
             function_block_start_addresses
         )
         function_block_start_addresses.sort()
-        
+
         # Step 2.
         function_block_start_addresses = self.estimate_functions_using_exit_points(
             function_block_start_addresses
         )
         function_block_start_addresses.sort()
-
+        
         # Create function block object.
         function_blocks = {}
         for idx, fb_start_address in enumerate(function_block_start_addresses):
@@ -180,8 +180,8 @@ class FunctionEvaluator:
                 common_objs.application_vector_table[intrpt]
             )
         # Add self-targeting branches.
-        for ins_address in common_objs.self_targeting_branches:
-            function_block_start_addresses.append(ins_address)
+        #for ins_address in common_objs.self_targeting_branches:
+        #    function_block_start_addresses.append(ins_address)
         return function_block_start_addresses
  
     def check_branch_tos(self, function_block_start_addresses):
@@ -192,7 +192,6 @@ class FunctionEvaluator:
                     function_block_start_addresses,
                     certainty
                 )
-            
         return function_block_start_addresses
         
     def check_branch_tos_at_certainty_level(self, function_block_start_addresses,
@@ -342,6 +341,7 @@ class FunctionEvaluator:
         return False
     
     def estimate_functions_using_exit_points(self, function_block_start_addresses):
+        logging.debug('Estimating functions using exit instructions.')
         num_functions = len(function_block_start_addresses)
         new_function_block_start_addresses = []
         for idx, function_start in enumerate(function_block_start_addresses):
@@ -353,9 +353,6 @@ class FunctionEvaluator:
                     function_block_start_addresses[idx+1]
                 )
                 current_fblock_end = self.all_addresses[all_address_index-1]
-            if (current_fblock_end-fblock_start) > 2500:
-                new_function_block_start_addresses.append(fblock_start)
-                return new_function_block_start_addresses
             new_function_blocks = self.analyse_function_block_for_exit_ins(
                 fblock_start,
                 current_fblock_end,
@@ -367,6 +364,12 @@ class FunctionEvaluator:
         return new_function_block_start_addresses
         
     def analyse_function_block_for_exit_ins(self, start, end, flist):
+        logging.debug(
+            'Function block estimation for super-block beginning at '
+            + hex(start)
+            + ' and end '
+            + hex(end)
+        )
         address = start
         possible_endpoints = []
         branches = {}
