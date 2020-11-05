@@ -35,6 +35,7 @@ function_blocks = {}
 replace_functions = {}
 denylisted_functions = []
 coi_addresses = {}
+table_branches = {}
 
 # Tracing objects.
 coi_chains = []

@@ -235,6 +235,7 @@ class FirmwareAnalyser:
         common_objs.replace_functions = {}
         common_objs.denylisted_functions = []
         common_objs.coi_addresses = {}
+        common_objs.table_branches = {}
         #> Tracing objects.
         common_objs.coi_chains = []
         common_objs.coi_function_blocks = []

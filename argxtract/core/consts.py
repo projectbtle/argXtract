@@ -11,6 +11,7 @@ ARMv7M = 'armv7m'
 # Functions.
 MEMSET = 'memset'
 UDIV = 'udiv'
+SWITCH8 = 'switch8'
 
 # Address types.
 ADDRESS_DATA = 'data'

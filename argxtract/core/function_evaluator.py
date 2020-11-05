@@ -8,11 +8,12 @@ from argxtract.common import paths as common_paths
 from argxtract.core import utils
 from argxtract.core import consts
 from argxtract.common import objects as common_objs
+from argxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FunctionEvaluator:
     def __init__(self):
-        pass
+        self.reg_eval = RegisterEvaluator()
         
     def estimate_function_blocks(self):
         logging.info(
@@ -58,6 +59,15 @@ class FunctionEvaluator:
             function_block_start_addresses
         )
         function_block_start_addresses.sort()
+        
+        # Remove the switch8 address from common_objs.replace_functions.
+        switch8_address = None
+        for address in common_objs.replace_functions:
+            if common_objs.replace_functions[address]['type'] == consts.SWITCH8:
+                switch8_address = address
+                break
+        if switch8_address != None:
+            common_objs.replace_functions.pop(switch8_address, None)
         
         # Create function block object.
         function_blocks = {}
@@ -232,6 +242,15 @@ class FunctionEvaluator:
                 continue
             if branch_address < common_objs.code_start_address:
                 common_objs.errored_instructions.append(ins_address)
+                logging.trace(
+                    'Branch target ('
+                    + hex(branch_address)
+                    + ') is less than the code start address ('
+                    + hex(common_objs.code_start_address)
+                    + ') for branch call at '
+                    + hex(ins_address)
+                    + '. Adding to errored instructions.'
+                )
                 continue
             
             # If the branch to is POP, or branch, then more likely to be
@@ -312,6 +331,8 @@ class FunctionEvaluator:
             if disassembled_fw[branch_address + i]['is_data'] == True:
                 continue
                 
+            if self.check_is_valid_exit(branch_address + i) == True:
+                return False    
             if disassembled_fw[branch_address + i]['insn'].id == ARM_INS_PUSH:
                 return True
                 
@@ -371,6 +392,7 @@ class FunctionEvaluator:
             + hex(end)
         )
         address = start
+        min_address = ''
         possible_endpoints = []
         branches = {}
         while address <= end:
@@ -398,10 +420,11 @@ class FunctionEvaluator:
             if potential_end == True:
                 skip_end = False
                 for branch_pt in branches:
-                    target = branches[branch_pt]
-                    if target > address:
-                        skip_end = True
-                        break
+                    targets = branches[branch_pt]
+                    for target in targets:
+                        if target > address:
+                            skip_end = True
+                            break
                 if skip_end == True:
                     address = self.get_next_address(self.all_addresses, address)
                     if address == None: break
@@ -427,8 +450,63 @@ class FunctionEvaluator:
                     branch_target = operands[0].value.imm
                 else:
                     branch_target = operands[1].value.imm
-                if ((branch_target <= end) and (branch_target not in branches)):
-                    branches[address] = branch_target
+                if (branch_target <= end):
+                    if address not in branches:
+                        branches[address] = [branch_target]
+            elif insn.id == ARM_INS_BL:
+                branch_target = operands[0].value.imm
+                if branch_target in common_objs.replace_functions:
+                    if common_objs.replace_functions[branch_target]['type'] == consts.SWITCH8:
+                        lr_value = address+4
+                        switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
+                        end_index = int(switch_table_len_byte, 16)
+                        post_skip_instruction_address = lr_value + end_index + 2
+                        if post_skip_instruction_address%2 == 1: 
+                            post_skip_instruction_address += 1
+                        logging.debug(
+                            'Identified call to ARM_SWITCH8 at '
+                            + hex(address)
+                            + '. Instruction following switch table at: '
+                            + hex(post_skip_instruction_address)
+                        )
+                        max_switch8_address = post_skip_instruction_address
+                        switch8_index = lr_value
+                        while switch8_index < (post_skip_instruction_address-1):
+                            switch8_index += 1
+                            switch_table_index = utils.get_firmware_bytes(switch8_index, 1)
+                            (result,carry) = \
+                                self.reg_eval.logical_shift_left(switch_table_index, 1)
+                            result_bin = utils.get_binary_representation(result, 8)
+                            result = str(carry) + result_bin
+                            switch8_address = lr_value + int(result, 2)
+                            if switch8_address > max_switch8_address:
+                                max_switch8_address = switch8_address
+                        logging.debug(
+                            'Maximum address referenced by ARM_SWITCH8 is '
+                            + hex(max_switch8_address)
+                        )
+                        branches[address] = [max_switch8_address]
+                        
+            elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
+                original_address = address
+                table_branch_addresses = \
+                    common_objs.table_branches[address]['table_branch_addresses']
+                branches[address] = table_branch_addresses
+                largest_table_address = max(table_branch_addresses)
+                min_address = largest_table_address
+                if min_address > end:
+                    logging.error(
+                        'Table address is greater than function end! '
+                        + hex(original_address)
+                    )
+                address = common_objs.table_branches[address]['table_branch_max']
+                if address%2 == 1: address-=1
+                logging.debug(
+                    'Processed table branch at '
+                    + hex(original_address)
+                    + '. Now skipping to ' 
+                    + hex(address)
+                )
             
             # Analyse next instruction.
             address = self.get_next_address(self.all_addresses, address)
@@ -473,6 +551,9 @@ class FunctionEvaluator:
                 target_address_int = insn.operands[0].value.imm
                 target_address = hex(target_address_int)
                 if target_address_int == ins_address:
+                    return True
+                # Wouldn't any unconditional branch to lower address be an exit?
+                if target_address_int < ins_address:
                     return True
         return False
     
@@ -561,7 +642,6 @@ class FunctionEvaluator:
             return (None, None, None)
         if len(possible_memsets) > 1: 
             logging.warning('Multiple candidates for memset. Using None.')
-            print(possible_memsets)
             return (None, None, None)
         memset_address = possible_memsets[0][0]
         logging.info(
@@ -608,7 +688,7 @@ class FunctionEvaluator:
         fixed_value = None
         address = start_address
         end_address = utils.id_function_block_end(start_address)
-        # Prelim checks. STRB, CMP and either ADD or SUB must be present.
+        # Prelim checks. STRB, CMP (or conditional branch) must be present.
         is_strb = False
         is_cmp = False
         is_self_branch = False
@@ -628,7 +708,10 @@ class FunctionEvaluator:
                 is_strb = True
             if insn.id == ARM_INS_CMP:
                 is_cmp = True
-                
+            if ((insn.id == ARM_INS_B) 
+                    and (insn.cc != ARM_CC_AL) 
+                    and (insn.cc != ARM_CC_INVALID)):
+                is_cmp = True
             address = self.get_next_address(self.all_addresses, address)
             
         # Memset doesn't have self-targeting branches.

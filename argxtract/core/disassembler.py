@@ -22,6 +22,7 @@ md.detail = True
 class FirmwareDisassembler:
     def __init__(self):
         self.reg_eval = RegisterEvaluator()
+        self.arm_switch8 = None
         
     def estimate_app_code_base(self):
         # Get AVT
@@ -155,6 +156,14 @@ class FirmwareDisassembler:
                 if ldr_target not in common_objs.disassembled_firmware:
                     if ins_address not in common_objs.errored_instructions:
                         common_objs.errored_instructions.append(ins_address)
+                        logging.trace(
+                            'LDR target ('
+                            + hex(ldr_target)
+                            + ') is not present in disassembled firmware '
+                            + 'for LDR call at '
+                            + hex(ins_address)
+                            + '. Adding to errored instructions.'
+                        )
                     continue
                 data_bytes = self.get_ldr_target_data_bytes(ldr_target)
                 if len(data_bytes) < 4:
@@ -166,6 +175,12 @@ class FirmwareDisassembler:
                     if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
                         if ins_address not in common_objs.errored_instructions:
                             common_objs.errored_instructions.append(ins_address)
+                            logging.trace(
+                                'Unable to get LDR bytes '
+                                + 'for LDR call at '
+                                + hex(ins_address)
+                                + '. Adding to errored instructions.'
+                            )
                         continue
                 ordered_bytes = struct.unpack('<I', data_bytes)[0]
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
@@ -306,15 +321,28 @@ class FirmwareDisassembler:
             'Checking for presence of inline data (data as instructions).'
         )
 
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        min_address = all_addresses[-1]
+        
         # Read in data from the Reset Handler.
         self.identify_data_segment_via_reset_handler()
-        
+
         self.handle_potential_byte_misinterpretation_errors()
         
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address < common_objs.code_start_address:
+        self.identify_arm_switch8()
+        
+        ins_address = common_objs.code_start_address - 2
+        while ins_address < min_address:
+            ins_address = self.reg_eval.get_next_address(
+                all_addresses,
+                ins_address
+            )
+            if ins_address == None: break
+
+            if ins_address in common_objs.errored_instructions:
                 continue
-                
+  
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None:
                 continue
@@ -323,15 +351,54 @@ class FirmwareDisassembler:
             if insn.id == ARM_INS_INVALID:
                 if ('byte' in insn.mnemonic):
                     common_objs.errored_instructions.append(ins_address)
+                    logging.trace(
+                        '"byte" in mnemonic at '
+                        + hex(ins_address)
+                        + '. Adding to errored instructions.'
+                    )
                     continue
                 common_objs.disassembled_firmware[ins_address]['is_data'] = True
                 continue
                 
+            # If it's a BL to ARM_SWITCH8:
+            if insn.id == ARM_INS_BL:
+                target_address_int = insn.operands[0].value.imm
+                if target_address_int == self.arm_switch8:
+                    # Skip next few instructions.
+                    lr_value = ins_address+4
+                    switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
+                    end_index = int(switch_table_len_byte, 16)
+                    post_skip_instruction_address = lr_value + end_index + 2
+                    if post_skip_instruction_address%2 == 1: 
+                        post_skip_instruction_address += 1
+                    logging.debug(
+                        'Call to ARM_Switch8 at '
+                        + hex(ins_address)
+                        + '. Skipping next few instructions to '
+                        + hex(post_skip_instruction_address)
+                    )
+                    switch8_address = lr_value
+                    while switch8_address < post_skip_instruction_address:
+                        common_objs.disassembled_firmware[switch8_address]['is_data'] = True
+                        switch8_address = self.reg_eval.get_next_address(
+                            all_addresses,
+                            switch8_address
+                        )
+                    # 2 will be added in the loop.
+                    ins_address = post_skip_instruction_address - 2
+                    continue
+            
             # Table branch indices.
             if insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
+                if ins_address not in common_objs.table_branches:
+                    common_objs.table_branches[ins_address] = {}
                 index_register = insn.operands[0].value.mem.index
+                common_objs.table_branches[ins_address]['comparison_register'] = \
+                    index_register
+                    
                 pc_address = ins_address + 4
                 address = ins_address
+                comparison_address = address
                 for i in range(5):
                     address -= 2
                     if common_objs.disassembled_firmware[address]['is_data'] == True:
@@ -344,11 +411,76 @@ class FirmwareDisassembler:
                     if prev_insn.operands[0].value.reg != index_register:
                         continue
                     comp_value = prev_insn.operands[1].value.imm
+                    comparison_address = address
                     break
-                mul_factor = 1
+                    
+                cbranch = comparison_address
+                cbranch_condition = None
+                while cbranch < ins_address:
+                    cbranch += 2
+                    if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
+                        continue
+                    if common_objs.disassembled_firmware[cbranch]['insn'] == None:
+                        continue
+                    branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
+                    if branch_insn.id != ARM_INS_B:
+                        continue
+                    cbranch_condition = branch_insn.cc
+                        
+                common_objs.table_branches[ins_address]['comparison_value'] = \
+                    comp_value
+                common_objs.table_branches[ins_address]['comparison_address'] = \
+                    comparison_address
+                common_objs.table_branches[ins_address]['branch_address'] = \
+                    cbranch
+                common_objs.table_branches[ins_address]['branch_condition'] = \
+                    cbranch_condition
+                    
+                if cbranch_condition == ARM_CC_HS:
+                    comp_value -= 1
+                    
+                num_entries = (comp_value + 1)
+                if insn.id == ARM_INS_TBB:
+                    mul_factor = 1
                 if insn.id == ARM_INS_TBH:
                     mul_factor = 2
-                table_branch_max = pc_address + (comp_value * mul_factor) + 2
+                size_table = num_entries * mul_factor
+                common_objs.table_branches[ins_address]['size_table'] = size_table
+                
+                table_branch_max = pc_address + size_table
+                if insn.id == ARM_INS_TBB:
+                    if (table_branch_max%2 == 1):
+                        table_byte = utils.get_firmware_bytes(table_branch_max, 1)
+                        if table_byte == '00':
+                            table_branch_max += 1
+                        else:
+                            logging.error('Unhandled TBB')
+                            table_branch_max += 1
+                
+                common_objs.table_branches[ins_address]['table_branch_max'] = \
+                    table_branch_max
+                    
+                logging.debug(
+                    'Skip TBB/TBH at '
+                    + hex(ins_address)
+                    + ' to '
+                    + hex(table_branch_max)
+                )
+                    
+                # Get all possible addresses.
+                table_branch_addresses = []
+                for i in range(comp_value+1):
+                    index_address = pc_address + (mul_factor*i)
+                    value = utils.get_firmware_bytes(
+                        index_address, 
+                        num_bytes=mul_factor
+                    )
+                    value = int(value, 16)
+                    branch_address = pc_address + (2*value)
+                    table_branch_addresses.append(branch_address)
+                common_objs.table_branches[ins_address]['table_branch_addresses'] = \
+                    table_branch_addresses
+                
                 while pc_address < table_branch_max:
                     logging.debug(
                         'Marking '
@@ -360,19 +492,35 @@ class FirmwareDisassembler:
                     common_objs.disassembled_firmware[pc_address]['insn'] = None
                     pc_address += 2
                 continue
-            
+ 
             # If the instruction is not a valid LDR instruction, then don't bother.
-            if self.check_valid_pc_ldr(ins_address) != True:
+            if ((self.check_valid_pc_ldr(ins_address) != True) and (insn.id != ARM_INS_ADR)):
                 continue
             curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address)
-                
-            # Target address is PC + offset.
             operands = insn.operands
+            
+            # If ADR is loading to registers other than R0-R2,
+            #  then don't use it for inline data identification?
+            # Hack to reduce FPs.
+            if (insn.id == ARM_INS_ADR):
+                if operands[0].value.reg not in [ARM_REG_R0, ARM_REG_R1, ARM_REG_R2]:
+                    continue
+            
+            # Target address is PC + offset.
             ldr_target = curr_pc_value + operands[1].mem.disp
-
+            if insn.id == ARM_INS_ADR:
+                ldr_target = curr_pc_value + operands[1].value.imm
             if ldr_target not in common_objs.disassembled_firmware:
                 if ins_address not in common_objs.errored_instructions:
                     common_objs.errored_instructions.append(ins_address)
+                    logging.trace(
+                        'LDR/ADR target ('
+                        + hex(ldr_target)
+                        + ') is not present is disassembled firmware '
+                        + 'for call at '
+                        + hex(ins_address)
+                        + '. Adding to errored instructions.'
+                    )
                 continue
      
             # If we have already marked the data at the target address,
@@ -385,6 +533,11 @@ class FirmwareDisassembler:
             if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
                 if ins_address not in common_objs.errored_instructions:
                     common_objs.errored_instructions.append(ins_address)
+                    logging.trace(
+                        'Unable to get data bytes for load instruction at '
+                        + hex(ins_address)
+                        + '. Adding to errored instructions.'
+                    )
                 continue
             
             logging.debug(
@@ -402,7 +555,7 @@ class FirmwareDisassembler:
                 common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
             common_objs.disassembled_firmware[ldr_target]['insn'] = None  
             
-            if insn.id == ARM_INS_LDR:
+            if ((insn.id == ARM_INS_LDR) or (insn.id == ARM_INS_ADR)):
                 # If we don't have a 4-byte word, then we need to get remaining
                 #  bytes from next "instruction".
                 if len(data_bytes) < 4:
@@ -414,6 +567,11 @@ class FirmwareDisassembler:
                     if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
                         if ins_address not in common_objs.errored_instructions:
                             common_objs.errored_instructions.append(ins_address)
+                            logging.trace(
+                                'Unable to load data bytes for LDR call at '
+                                + hex(ins_address)
+                                + '. Adding to errored instructions.'
+                            )
                         continue
                 ordered_bytes = struct.unpack('<I', data_bytes)[0]
                 common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
@@ -439,7 +597,7 @@ class FirmwareDisassembler:
             # If ID is 0, then it may mean inline data.
             # But it may also be Capstone incorrectly disassembling a word.
             if insn.id == ARM_INS_INVALID:
-                if (('byte' in insn.mnemonic) and (insn.bytes == b'\xff\xff')):
+                if ('byte' in insn.mnemonic):
                     byte_misinterpretation = \
                         self.handle_byte_misinterpretation(ins_address, insn)
                     if byte_misinterpretation == True:
@@ -475,7 +633,55 @@ class FirmwareDisassembler:
                     break
                 return True
         return False
-                        
+    
+    def identify_arm_switch8(self):
+        logging.debug('Checking for __ARM_common_switch8')
+        arm_switch8 = None
+        for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+                continue
+                
+            insn = common_objs.disassembled_firmware[ins_address]['insn']
+            if insn == None: continue
+            
+            is_potential_arm_switch8 = False
+            if insn.id == ARM_INS_PUSH:
+                operands = insn.operands
+                if len(operands) == 2:
+                    if ((operands[0].value.reg == ARM_REG_R4) 
+                            and (operands[1].value.reg == ARM_REG_R5)):
+                        is_potential_arm_switch8 = True
+            if is_potential_arm_switch8 != True:
+                continue
+            if ((ins_address+2) not in common_objs.disassembled_firmware):
+                is_potential_arm_switch8 = False
+                continue
+            next_insn = common_objs.disassembled_firmware[ins_address+2]['insn']
+            if next_insn == None:
+                is_potential_arm_switch8 = False
+                continue
+            if next_insn.id not in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
+                is_potential_arm_switch8 = False
+                continue
+            next_operands = next_insn.operands
+            if next_operands[0].value.reg != ARM_REG_R4:
+                is_potential_arm_switch8 = False
+                continue
+            if next_operands[1].value.reg != ARM_REG_LR:
+                is_potential_arm_switch8 = False
+                continue
+            if is_potential_arm_switch8 == True:
+                arm_switch8 = ins_address
+                break
+        if arm_switch8 == None: return
+        logging.info('ARM switch8 identified at ' + hex(arm_switch8))
+        self.arm_switch8 = arm_switch8
+        common_objs.replace_functions[arm_switch8] = {
+            'type': consts.SWITCH8
+        }
+        
     def identify_data_segment_via_reset_handler(self):
         reset_handler_address = common_objs.application_vector_table['reset']
         address = reset_handler_address - 2
@@ -494,6 +700,14 @@ class FirmwareDisassembler:
                 if insn.cc == ARM_CC_AL:
                     branch_target = insn.operands[0].value.imm
                     if branch_target < common_objs.code_start_address:
+                        logging.trace(
+                            'Branch target ('
+                            + hex(branch_target)
+                            + ') is not less than code start address '
+                            + 'for call at '
+                            + hex(ins_address)
+                            + '. Adding to errored instructions.'
+                        )
                         common_objs.errored_instructions.append(address)
                         continue
                     if branch_target == address:
@@ -503,6 +717,11 @@ class FirmwareDisassembler:
             if insn.id == ARM_INS_INVALID:
                 if ('byte' in insn.mnemonic):
                     common_objs.errored_instructions.append(address)
+                    logging.trace(
+                        '"byte" in mnemonic at '
+                        + hex(address)
+                        + '. Adding to errored instructions.'
+                    )
                     continue
                 common_objs.disassembled_firmware[address]['is_data'] = True
                 break
@@ -518,13 +737,15 @@ class FirmwareDisassembler:
                 # Target address is PC + offset.
                 operands = insn.operands
                 ldr_target = curr_pc_value + operands[1].mem.disp
-                ldr_value = self.reg_eval.get_firmware_bytes(ldr_target, 4)
+                ldr_value = utils.get_firmware_bytes(ldr_target, 4)
                 ldr_value = int(ldr_value, 16)
                 common_objs.disassembled_firmware[ldr_target]['is_data'] = True
                 if (ldr_target+2) in common_objs.disassembled_firmware:
                     common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
                 common_objs.disassembled_firmware[ldr_target]['data'] = ldr_value
                 if ldr_value in common_objs.disassembled_firmware:
+                    if ldr_value < common_objs.code_start_address:
+                        continue
                     if data_start_firmware_address == '':
                         data_start_firmware_address = ldr_value
                     else:
@@ -559,7 +780,7 @@ class FirmwareDisassembler:
         while fw_address <= last_address:
             if real_address % 4 == 0:
                 data_region_value = \
-                    self.reg_eval.get_firmware_bytes(
+                    utils.get_firmware_bytes(
                         fw_address, 
                         4,
                         endian='big'
@@ -664,9 +885,14 @@ class FirmwareDisassembler:
         all_addresses.sort()
         min_address = all_addresses[0]
         max_address = all_addresses[-1]
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address < common_objs.code_start_address:
-                continue
+        ins_address = common_objs.code_start_address - 2
+        while ins_address < min_address:
+            ins_address = self.reg_eval.get_next_address(
+                all_addresses,
+                ins_address
+            )
+            if ins_address == None: break
+            
             if ins_address in common_objs.errored_instructions:
                 continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
@@ -674,14 +900,14 @@ class FirmwareDisassembler:
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None:
                 continue
-            
+                    
             # If the instruction is not a valid LDR instruction, then don't bother.
             if self.check_valid_pc_ldr(ins_address) != True:
                 continue
             if insn.id != ARM_INS_LDR:
                 continue
             curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address)
-                
+
             # Target address is PC + offset.
             operands = insn.operands
             ldr_target = curr_pc_value + operands[1].mem.disp
@@ -764,11 +990,27 @@ class FirmwareDisassembler:
             #  potential errors.
             if ins_address not in common_objs.errored_instructions:
                 common_objs.errored_instructions.append(ins_address)
+                logging.trace(
+                    'Branch target ('
+                    + hex(branch_address)
+                    + ') is not present is disassembled firmware '
+                    + 'for call at '
+                    + hex(ins_address)
+                    + '. Adding to errored instructions.'
+                )
             return disassembled_fw
         # If the target is data, then it is an invalid branch.
         if (disassembled_fw[branch_address]['is_data'] == True):
             if ins_address not in common_objs.errored_instructions:
                 common_objs.errored_instructions.append(ins_address)
+                logging.trace(
+                    'Branch target ('
+                    + hex(branch_address)
+                    + ') is data '
+                    + 'for call at '
+                    + hex(ins_address)
+                    + '. Adding to errored instructions.'
+                )
             return disassembled_fw
         
         # Add back-links to disassembled firmware object. 

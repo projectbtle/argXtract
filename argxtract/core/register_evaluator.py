@@ -168,17 +168,28 @@ class RegisterEvaluator:
         # Start from the starting point within assembly,
         #  and follow the instructions along the chain.
         for ins_address in common_objs.disassembled_firmware:
-            if ins_address in common_objs.errored_instructions:
-                continue
             # We don't want to process any instruction at an address
             #  lower than start point.
             if ins_address < start_point:
                 continue
-
+                
+            if ins_address in common_objs.errored_instructions:
+                logging.trace(
+                    'Errored instruction at '
+                    + hex(ins_address)
+                    + '. Skipping.'
+                )
+                continue
+                
             # We assume that the code must contain ways to skip inline data
             #  (such as via branches), so if we encounter inline data, 
             #  we must have come to end of executable part of function.
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+                logging.trace(
+                    'Data instruction at '
+                    + hex(ins_address)
+                    + '. Skipping'
+                )
                 return
             
             # If we have arrived at an end point, i.e., a COI, then
@@ -237,6 +248,11 @@ class RegisterEvaluator:
             # Instructions we needn't process (NOP, etc).
             skip_insn = self.check_skip_instruction(ins_address)
             if skip_insn == True:
+                logging.trace(
+                    'Instruction at '
+                    + hex(ins_address)
+                    + ' to be skipped.'
+                )
                 continue
 
             insn = common_objs.disassembled_firmware[ins_address]['insn']
@@ -355,7 +371,20 @@ class RegisterEvaluator:
                 and (branch_target not in common_objs.coi_function_blocks)):
             executed_branch = False
             should_execute_next_instruction = True
+            logging.debug('Branch has been denylisted')
             return (executed_branch, should_execute_next_instruction)
+            
+        # If BL, BLX, get return address and update Link Register.
+        if opcode_id in [ARM_INS_BL, ARM_INS_BLX]:
+            link_return_address = \
+                self.all_addresses[self.all_addresses.index(ins_address) + 1]
+            register_object[ARM_REG_LR] = \
+                '{0:08x}'.format(link_return_address) 
+            
+            logging.debug(
+                'Link return address is '
+                + '{0:08x}'.format(link_return_address)
+            )
             
         # We process certain functions differently.
         if branch_target in common_objs.replace_functions:
@@ -366,7 +395,8 @@ class RegisterEvaluator:
                 memory_map = self.process_memset(
                     memory_map,
                     register_object,
-                    replace_function
+                    replace_function,
+                    ins_address
                 )
             elif func_type == consts.UDIV:
                 register_object = self.process_software_udiv(
@@ -374,6 +404,31 @@ class RegisterEvaluator:
                 )
             executed_branch = True
             should_execute_next_instruction = True
+            # These special functions are normally called using BL.
+            #  If B is used, then we probably don't want to continue execution.
+            if opcode_id == ARM_INS_B:
+                next_address = \
+                    self.all_addresses[self.all_addresses.index(ins_address) + 1]
+                lr_value = int(register_object[ARM_REG_LR], 16)
+                if next_address != lr_value:
+                    trace_obj = self.get_return_trace_obj(
+                        trace_obj,
+                        lr_value
+                    )
+                    logging.debug('Counter: ' + str(self.global_counter))
+                    
+                    # Branch.
+                    self.add_to_trace_queue(
+                        ins_address,
+                        lr_value,
+                        register_object,
+                        memory_map,
+                        condition_flags,
+                        trace_obj,
+                        current_path,
+                        null_registers
+                    )
+                    should_execute_next_instruction = False
             return (executed_branch, should_execute_next_instruction)
             
         # Check whether we execute the branch, based on conditionals.
@@ -426,17 +481,7 @@ class RegisterEvaluator:
                 new_trace_obj = trace_obj['branch_or_end_points'][ins_address]
                 trace_obj = new_trace_obj['branch_target'][branch_target]
         
-        # If BL, BLX, get return address and update Link Register.
-        if opcode_id in [ARM_INS_BL, ARM_INS_BLX]:
-            link_return_address = \
-                self.all_addresses[self.all_addresses.index(ins_address) + 1]
-            register_object[ARM_REG_LR] = \
-                '{0:08x}'.format(link_return_address) 
-            
-            logging.debug(
-                'Link return address is '
-                + '{0:08x}'.format(link_return_address)
-            )
+        
         # If BX, we may need to get previous level of trace obj.
         if opcode_id == ARM_INS_BX:
             trace_obj = self.get_return_trace_obj(
@@ -465,12 +510,15 @@ class RegisterEvaluator:
         # The target might have been set to null on purpose, 
         #  to prevent the branch.
         if (branch_target == None): 
+            logging.trace('Null target. Skipping.')
             return (False, None)
 
         if calling_address in common_objs.errored_instructions:
+            logging.trace('Errored instruction. Skipping.')
             return (False, None)
             
         if branch_target < common_objs.code_start_address:
+            logging.trace('Target less than code start address. Skipping.')
             return (False, None)
             
         logging.debug('Checking whether we should follow this branch')
@@ -499,6 +547,7 @@ class RegisterEvaluator:
 
         # If current and target are equal, then it's a perpetual self-loop.
         if calling_address == branch_target:
+            logging.trace('Calling address and target are equal. Skipping.')
             return (False, None)
 
         # Get function blocks.
@@ -726,7 +775,7 @@ class RegisterEvaluator:
             condition_flags['c'] = carry
         if overflow != None:
             condition_flags['v'] = overflow
-        result_in_bits = self.get_binary_representation(result, 32)
+        result_in_bits = utils.get_binary_representation(result, 32)
         if result_in_bits[0] == '0':
             condition_flags['n'] = 0
         else:
@@ -847,15 +896,13 @@ class RegisterEvaluator:
         
         # Get the indexing register, the value it is compared to, and the 
         #  address at which the comparison takes place.
-        (comp_register, comp_value, comp_address) = \
-            self.get_table_branch_register_comparison_value(ins_address)
+        comp_register = common_objs.table_branches[ins_address]['comparison_register']
+        comp_value = common_objs.table_branches[ins_address]['comparison_value']
+        comp_address = common_objs.table_branches[ins_address]['comparison_address']
 
         # Get all possible branch addresses.
-        table_branch_addresses = self.get_table_branch_addresses(
-            ins_address,
-            opcode_id,
-            comp_value
-        )
+        table_branch_addresses = \
+            common_objs.table_branches[ins_address]['table_branch_addresses']
                 
         # Get address to skip to, i.e., if index is greater than comp_value.
         # This will be present in a preceding branch instruction.
@@ -933,7 +980,7 @@ class RegisterEvaluator:
         # Get all possible addresses.
         for i in range(num_values+1):
             index_address = pc_address + (mul_factor*i)
-            value = self.get_firmware_bytes(
+            value = utils.get_firmware_bytes(
                 index_address, 
                 num_bytes=mul_factor
             )
@@ -1769,7 +1816,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        np_dtype = self.get_numpy_type([start_value, and_value])
+        np_dtype = utils.get_numpy_type([start_value, and_value])
         result = np.bitwise_and(
             start_value.astype(np_dtype),
             and_value.astype(np_dtype),
@@ -1864,8 +1911,8 @@ class RegisterEvaluator:
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[1], 'int')
         (width, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
-        bit_length = self.get_bit_length(src_value)
-        bits = self.get_binary_representation(src_value, bit_length)
+        bit_length = utils.get_bit_length(src_value)
+        bits = utils.get_binary_representation(src_value, bit_length)
         end_idx = bit_length - lsb -1
         start_idx = bit_length - lsb - width
         
@@ -1876,7 +1923,7 @@ class RegisterEvaluator:
             else:
                 new_bits += bits[i]
 
-        new_value = self.convert_bits_to_type(new_bits, type(src_value))
+        new_value = utils.convert_bits_to_type(new_bits, type(src_value))
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -1922,9 +1969,9 @@ class RegisterEvaluator:
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
         (width, _) = self.get_src_reg_value(next_reg_values, operands[3], 'int')
-        bit_length = self.get_bit_length(src_value)
-        original_bits = self.get_binary_representation(original_value, bit_length)
-        src_bits = self.get_binary_representation(src_value, bit_length)
+        bit_length = utils.get_bit_length(src_value)
+        original_bits = utils.get_binary_representation(original_value, bit_length)
+        src_bits = utils.get_binary_representation(src_value, bit_length)
         
         insert_bits = src_bits[(-1*width):]
         end_idx = bit_length - lsb -1
@@ -1939,7 +1986,7 @@ class RegisterEvaluator:
             else:
                 new_bits += original_bits[i]
 
-        new_value = self.convert_bits_to_type(new_bits, type(original_value))
+        new_value = utils.convert_bits_to_type(new_bits, type(original_value))
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -1990,7 +2037,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
 
-        np_dtype = self.get_numpy_type([start_value, not_value])
+        np_dtype = utils.get_numpy_type([start_value, not_value])
         inverted_not_value = np.bitwise_not(
             not_value.astype(np_dtype),
             dtype=np_dtype,
@@ -2046,7 +2093,7 @@ class RegisterEvaluator:
             return (next_reg_values, null_registers)
         
         num_bits = int(len(src_value) * 2)
-        result_in_bits = self.get_binary_representation(src_value, num_bits)
+        result_in_bits = utils.get_binary_representation(src_value, num_bits)
         
         num_leading_zeros = 0
         for i in range(num_bits):
@@ -2054,7 +2101,7 @@ class RegisterEvaluator:
                 num_leading_zeros += 1
             else:
                 break
-        result = self.convert_type(num_leading_zeros, 'hex')
+        result = utils.convert_type(num_leading_zeros, 'hex')
         result = result.zfill(8)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -2106,7 +2153,7 @@ class RegisterEvaluator:
             (result, carry, overflow) = \
                 self.add_with_carry(operand1, operand2, 1, sub=True)
         elif opcode_id == ARM_INS_TST:
-            np_dtype = self.get_numpy_type([operand1, operand2])
+            np_dtype = utils.get_numpy_type([operand1, operand2])
             result = np.bitwise_and(
                 operand1.astype(np_dtype),
                 operand2.astype(np_dtype),
@@ -2114,7 +2161,7 @@ class RegisterEvaluator:
                 casting='safe'
             )
         elif opcode_id == ARM_INS_TEQ:
-            np_dtype = self.get_numpy_type([operand1, operand2])
+            np_dtype = utils.get_numpy_type([operand1, operand2])
             result = np.bitwise_xor(
                 operand1.astype(np_dtype),
                 operand2.astype(np_dtype),
@@ -2173,7 +2220,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        np_dtype = self.get_numpy_type([start_value, orr_value])
+        np_dtype = utils.get_numpy_type([start_value, orr_value])
         result = np.bitwise_xor(
             start_value.astype(np_dtype),
             orr_value.astype(np_dtype),
@@ -2851,7 +2898,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        np_dtype = self.get_numpy_type([src_value])
+        np_dtype = utils.get_numpy_type([src_value])
         result = np.bitwise_not(
             src_value.astype(np_dtype),
             dtype=np_dtype,
@@ -2914,7 +2961,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        np_dtype = self.get_numpy_type([start_value, orr_value])
+        np_dtype = utils.get_numpy_type([start_value, orr_value])
         orr_value = np.bitwise_not(
             orr_value.astype(np_dtype),
             dtype=np_dtype,
@@ -2983,7 +3030,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        np_dtype = self.get_numpy_type([start_value, orr_value])
+        np_dtype = utils.get_numpy_type([start_value, orr_value])
         result = np.bitwise_or(
             start_value.astype(np_dtype),
             orr_value.astype(np_dtype),
@@ -3112,10 +3159,10 @@ class RegisterEvaluator:
             return (next_reg_values, null_registers)
         
         # reversed_bits.
-        src_bits = self.get_binary_representation(src_value, 32)
+        src_bits = utils.get_binary_representation(src_value, 32)
         reversed_bits = src_bits[::-1]
             
-        reversed_bytes = self.convert_bits_to_type(reversed_bits, 'hex')
+        reversed_bytes = utils.convert_bits_to_type(reversed_bits, 'hex')
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3456,7 +3503,7 @@ class RegisterEvaluator:
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
         (width, _) = self.get_src_reg_value(next_reg_values, operands[3], 'int')
-        src_bits = self.get_binary_representation(src_value, 32)
+        src_bits = utils.get_binary_representation(src_value, 32)
         msb = lsb + width - 1
         new_bits = src_bits[msb:lsb]
         top_bit = new_bits[0]
@@ -3467,7 +3514,7 @@ class RegisterEvaluator:
             extended_bits += new_bits
             new_bits = extended_bits[-32:]
             
-        new_value = self.convert_bits_to_type(new_bits, 'hex')
+        new_value = utils.convert_bits_to_type(new_bits, 'hex')
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3743,13 +3790,13 @@ class RegisterEvaluator:
         
         (lsb, _) = self.get_src_reg_value(next_reg_values, operands[2], 'int')
         (width, _) = self.get_src_reg_value(next_reg_values, operands[3], 'int')
-        src_bits = self.get_binary_representation(src_value, 32)
+        src_bits = utils.get_binary_representation(src_value, 32)
         msb = lsb + width - 1
         new_bits = src_bits[msb:lsb]
         if msb <= 31:
             new_bits = new_bits.zfill(32)
             
-        new_value = self.convert_bits_to_type(new_bits, 'hex')
+        new_value = utils.convert_bits_to_type(new_bits, 'hex')
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3931,12 +3978,12 @@ class RegisterEvaluator:
             return (None, None)
 
         if carry_in == None:
-            src_value = self.convert_type(src_value, dtype)        
+            src_value = utils.convert_type(src_value, dtype)        
             return (src_value, carry_in)
         
         carry = carry_in
         if src_operand.shift.value != 0:
-            src_value = self.convert_type(src_value, 'int')
+            src_value = utils.convert_type(src_value, 'int')
             shift_value = src_operand.shift.value
             shift_type = src_operand.shift.type
             if shift_type == ARM_SFT_ASR:
@@ -3953,7 +4000,7 @@ class RegisterEvaluator:
                 )
         else:
             carry = carry_in
-        src_value = self.convert_type(src_value, dtype)        
+        src_value = utils.convert_type(src_value, dtype)        
         return (src_value, carry)
         
     def get_shift_value(self, current_reg_values, shift_operand):
@@ -4112,7 +4159,7 @@ class RegisterEvaluator:
             value = registers[address]
             
         # Type conversion
-        value = self.convert_type(value, dtype)
+        value = utils.convert_type(value, dtype)
         return value
         
     def get_value_from_memory(self, memory_map, address, 
@@ -4123,7 +4170,7 @@ class RegisterEvaluator:
         if address_type == consts.ADDRESS_DATA:
             src_value = self.get_data_bytes(address, num_bytes, dtype)
         elif address_type == consts.ADDRESS_FIRMWARE:
-            src_value = self.get_firmware_bytes(address, num_bytes, dtype)
+            src_value = utils.get_firmware_bytes(address, num_bytes, dtype)
         else:
             src_value = self.get_memory_bytes(
                 memory_map,
@@ -4205,52 +4252,13 @@ class RegisterEvaluator:
             remaining_bytes -= obtained_bytes
             address += obtained_bytes
         if endian == 'little':
-            value = self.reverse_bytes(self.convert_type(value, 'bytes'))
-            value = self.convert_type(value, 'hex')
+            value = utils.reverse_bytes(utils.convert_type(value, 'bytes'))
+            value = utils.convert_type(value, 'hex')
         logging.debug('Read bytes ' + value)
         # Type conversion.
-        value = self.convert_type(value, dtype)
+        value = utils.convert_type(value, dtype)
         return value
-                
-        
-    def get_firmware_bytes(self, address, num_bytes=4, dtype='hex', 
-            endian=common_objs.endian):
-        address = address - common_objs.disassembly_start_address
-        end_address = address + num_bytes
-        data_bytes = None
-        remaining_bytes = num_bytes
-        value = None
-        while remaining_bytes > 0:
-            format_string = '<'
-            if remaining_bytes >= 4:
-                format_string += 'I'
-                end_address = address + 4
-                obtained_bytes = 4
-            elif remaining_bytes >= 2:
-                format_string += 'H'
-                end_address = address + 2
-                obtained_bytes = 2
-            else:
-                format_string += 'B'
-                end_address = address + 1
-                obtained_bytes = 1
-            data_bytes = common_objs.core_bytes[address:end_address]
-            if endian == 'little':
-                mem_value = self.reverse_bytes(data_bytes)
-            else:
-                mem_value = data_bytes
-            mem_value = self.convert_type(mem_value, 'hex')
-            
-            if value == None:
-                value = mem_value
-            else:
-                value = value + mem_value
-            remaining_bytes -= obtained_bytes
-            address += obtained_bytes
-        # Type conversion.
-        value = self.convert_type(value, dtype)
-        return value
-    
+
     def get_memory_bytes(self, memory_map, address, num_bytes=4, dtype='hex', 
                             unprocessed=False, endian=common_objs.endian):
         # If we want raw values, then use this.
@@ -4284,7 +4292,7 @@ class RegisterEvaluator:
                 value = memory_map[address]
         else:
             logging.error('Invalid number of bytes.')
-        value = self.convert_type(value, dtype)
+        value = utils.convert_type(value, dtype)
         return value
         
     def get_memory_word(self, memory_map, address, endian=common_objs.endian):
@@ -4346,7 +4354,7 @@ class RegisterEvaluator:
             temp_value = memory_map[address]
             if temp_value != None:
                 if dtype == 'hex':
-                    temp_value = self.convert_type(temp_value, 'hex')
+                    temp_value = utils.convert_type(temp_value, 'hex')
                     temp_halfbytes = len(temp_value)
                     temp_bytes = int(temp_halfbytes/2)
         return temp_bytes
@@ -4355,7 +4363,7 @@ class RegisterEvaluator:
         if address not in registers:
             return registers
         
-        value = self.convert_type(value, 'hex')
+        value = utils.convert_type(value, 'hex')
         if force_word_length == True: 
             value = value.zfill(8)
             value = value[-8:]
@@ -4371,7 +4379,7 @@ class RegisterEvaluator:
             )
             return memory_map
 
-        value = self.convert_type(value, 'hex')
+        value = utils.convert_type(value, 'hex')
         if value == None:
             value = '00' * num_bytes
         value = value.zfill(2*num_bytes)
@@ -4392,7 +4400,7 @@ class RegisterEvaluator:
 
     def store_memory_bytes(self, memory_map, address, value, 
                                force_word_length=False):
-        value = self.convert_type(value, 'hex')
+        value = utils.convert_type(value, 'hex')
         if force_word_length == True: value = value.zfill(8)
         
         if value == None:
@@ -4416,7 +4424,7 @@ class RegisterEvaluator:
         )                 
         return memory_map
 
-    def process_memset(self, memory_map, register_object, memset_obj):
+    def process_memset(self, memory_map, register_object, memset_obj, address):
         logging.debug('Call to memset identified.')
         ptr_address = register_object[memset_obj['pointer']]
         if memset_obj['fixed_value'] != None:
@@ -4432,7 +4440,8 @@ class RegisterEvaluator:
         if type(length) == str:
             length = int(length, 16)
         if length == 0:
-            logging.warning('memset len specified as 0.')
+            logging.warning('memset len specified as 0 at ' + hex(address))
+            sys.exit(0)
             return memory_map
         # We don't want to create huge memory maps,
         #  so process only if length is lower than a certain value.
@@ -4444,7 +4453,7 @@ class RegisterEvaluator:
                 + str(length)
             )
             return memory_map
-        value = self.convert_type(value, 'hex')
+        value = utils.convert_type(value, 'hex')
         value = value.zfill(8)
         if value[0:6] != '000000':
             return memory_map
@@ -4471,18 +4480,18 @@ class RegisterEvaluator:
         return memory_map
         
     def process_software_udiv(self, register_object):
-        numerator = self.convert_type(register_object[ARM_REG_R0], 'int')
-        denominator = self.convert_type(register_object[ARM_REG_R1], 'int')
+        numerator = utils.convert_type(register_object[ARM_REG_R0], 'int')
+        denominator = utils.convert_type(register_object[ARM_REG_R1], 'int')
         if ((numerator == None) or (denominator == None)):
             return register_object
         if denominator == 0:
-            register_object[ARM_REG_R1] = self.convert_type(numerator, 'hex')
+            register_object[ARM_REG_R1] = utils.convert_type(numerator, 'hex')
             register_object[ARM_REG_R0] = '00000000'
             return register_object
         quotient = numerator//denominator
         remainder = numerator%denominator
-        register_object[ARM_REG_R0] = self.convert_type(quotient, 'hex')
-        register_object[ARM_REG_R1] = self.convert_type(remainder, 'hex')
+        register_object[ARM_REG_R0] = utils.convert_type(quotient, 'hex')
+        register_object[ARM_REG_R1] = utils.convert_type(remainder, 'hex')
         return register_object
         
     # =======================================================================  
@@ -4530,113 +4539,7 @@ class RegisterEvaluator:
             next_address = address_obj[address_obj.index(ins_address) + 1]
         else:
             next_address = None
-        return next_address
-        
-    def reverse_bytes(self, bytes):
-        hex_bytes = bytes.hex()
-        ba = bytearray.fromhex(hex_bytes)
-        ba.reverse()
-        reversed_hex = ''.join(format(x, '02x') for x in ba)
-        reversed_bytes = bytes.fromhex(reversed_hex)
-        return reversed_bytes
-    
-    def get_numpy_type(self, values):
-        dtype = np.int8
-        for value in values:
-            val_type = type(value)
-            if dtype == np.int8:
-                dtype = val_type
-            elif dtype == np.uint8:
-                if val_type == np.int8:
-                    continue
-                dtype = val_type
-            elif dtype == np.int16:
-                if ((val_type == np.int8) 
-                        or (val_type == np.uint8)):
-                    continue
-                dtype = val_type
-            elif dtype == np.uint16:
-                if ((val_type == np.int8) 
-                        or (val_type == np.uint8) 
-                        or (val_type == np.int16)):
-                    continue
-                dtype = val_type
-            elif dtype == np.int32:
-                if val_type == np.uint32:
-                    dtype = val_type
-        return dtype
-        
-    def convert_type(self, value, dtype, byte_length='default'):
-        if dtype == 'int':
-            if type(value) is int:
-                value = value
-            elif type(value) is str:
-                length = len(value)
-                value = int(value, 16)
-                if length == 2:
-                    if value > 127:
-                        value = np.uint8(value)
-                    else:
-                        value = np.int8(value)
-                elif length == 4:
-                    if value > 32767:
-                        value = np.uint16(value)
-                    else:
-                        value = np.int16(value)
-                elif length == 8:
-                    if value > 2147483647:
-                        value = np.uint32(value)
-                    else:
-                        value = np.int32(value)
-        elif dtype == 'hex':
-            if type(value) is str:
-                value = value
-            elif type(value) is np.int32:
-                value = '{0:08x}'.format(value)
-            elif type(value) is np.uint32:
-                value = '{0:08x}'.format(value)
-            elif type(value) is np.int64:
-                value = '{0:08x}'.format(value)
-            elif type(value) is int:
-                value = '{0:02x}'.format(value)
-            elif type(value) is bytes:
-                value = value.hex()
-        elif dtype == 'bytes':
-            if type(value) is str:
-                value = bytes.fromhex(value)
-            elif type(value) is int:
-                if byte_length == 'default': 
-                    byte_length = (value.bit_length() + 7) // 8
-                value = (value).to_bytes(
-                    byte_length, 
-                    byteorder='big'
-                )
-            elif type(value) is bytes:
-                value = value
-        elif dtype == 'int':
-            if type(value) is np.int32:
-                value = self.get_binary_representation(value, 32)
-            elif type(value) is np.uint32:
-                value = self.get_binary_representation(value, 32)
-            elif type(value) is np.int64:
-                value = self.get_binary_representation(value, 32)
-            elif type(value) is int:
-                value = self.get_binary_representation(value, 32)
-            elif type(value) is np.int16:
-                value = self.get_binary_representation(value, 16)
-            elif type(value) is np.uint16:
-                value = self.get_binary_representation(value, 16)
-            elif type(value) is np.int8:
-                value = self.get_binary_representation(value, 8)
-            elif type(value) is np.uint8:
-                value = self.get_binary_representation(value, 8)
-            elif type(value) is str:
-                bin_len = len(str) * 4
-                value = self.get_binary_representation(
-                    int(value, 16),
-                    bin_len
-                )
-        return value
+        return next_address    
         
     def print_memory(self, memory):
         # Sort memory obj.
@@ -4645,79 +4548,12 @@ class RegisterEvaluator:
         for address in memory:
             string_mem += hex(address)
             string_mem += ':'
-            value = self.convert_type(memory[address], 'hex')
+            value = utils.convert_type(memory[address], 'hex')
             string_mem += str(value)
             string_mem += ','
         string_mem += '}'
         return string_mem
 
-    def get_bit_length(self, value):
-        bit_length = None
-        if ((type(value) is np.uint32) or (type(value) is np.int32)):
-            bit_length = 32
-        elif ((type(value) is np.uint16) or (type(value) is np.int16)):
-            bit_length = 16
-        elif ((type(value) is np.uint8) or (type(value) is np.int8)):
-            bit_length = 8
-        elif (type(value) is str):
-            if len(str) == 8:
-                bit_length = 32
-            elif len(str) == 4:
-                bit_length = 16
-            elif len(str) == 2:
-                bit_length = 8
-        if bit_length == None: 
-            print(type(value))
-            logging.error('WHAT')
-        return bit_length
-        
-    def get_binary_representation(self, value, length):
-        if value == None: return None
-        if type(value) is str:
-            binary = bin(int('1'+value, 16))[3:]
-            binary = binary.zfill(length)
-        else:
-            binary = np.binary_repr(value, width=length)
-        return binary          
-        
-    def convert_bits_to_type(self, bitstring, dtype):
-        if ((dtype is str) or (dtype == 'hex')):
-            hex_value = '%0*x' % ((len(bitstring) + 3) // 4, int(bitstring, 2))
-            new_value = hex_value
-        else:
-            python_int = int(bitstring, 2)
-            if dtype == np.int8:
-                try:
-                    decimal_value = np.int8(int(bitstring, 2))
-                except:
-                    decimal_value = np.uint8(int(bitstring, 2))
-            elif dtype == np.uint8:
-                if python_int < 0:
-                    decimal_value = np.int8(int(bitstring, 2))
-                else:
-                    decimal_value = np.uint8(int(bitstring, 2))
-            elif dtype == np.int16:
-                try:
-                    decimal_value = np.int16(int(bitstring, 2))
-                except:
-                    decimal_value = np.uint16(int(bitstring, 2))
-            elif dtype == np.uint16:
-                if python_int < 0:
-                    decimal_value = np.int16(int(bitstring, 2))
-                else:
-                    decimal_value = np.uint16(int(bitstring, 2))
-            elif dtype == np.int32:
-                try:
-                    decimal_value = np.int32(int(bitstring, 2))
-                except:
-                    decimal_value = np.uint32(int(bitstring, 2))
-            elif dtype == np.uint32:
-                if python_int < 0:
-                    decimal_value = np.int32(int(bitstring, 2))
-                else:
-                    decimal_value = np.uint32(int(bitstring, 2))
-            new_value = decimal_value.astype(dtype)
-        return new_value
         
     # =======================================================================   
     #----------------------------- Arithmetic ops ---------------------------
@@ -4734,15 +4570,15 @@ class RegisterEvaluator:
             return (value, 0)
         if shift > 31:
             return (None, 0)
-        bit_length = self.get_bit_length(value)
-        bits = self.get_binary_representation(value, bit_length)
+        bit_length = utils.get_bit_length(value)
+        bits = utils.get_binary_representation(value, bit_length)
         extended_bits = bits
         for i in range(shift):
             extended_bits += '0'
             carry_out = extended_bits[0]
             shifted_value = extended_bits[(-1*bit_length):]
             extended_bits = shifted_value
-        new_value = self.convert_bits_to_type(extended_bits, 'hex')
+        new_value = utils.convert_bits_to_type(extended_bits, 'hex')
         carry_out = int(carry_out)
         return (new_value, carry_out)
         
@@ -4758,15 +4594,15 @@ class RegisterEvaluator:
             return (value, 0)
         if shift > 32:
             return (None, 0)
-        bit_length = self.get_bit_length(value)
-        bits = self.get_binary_representation(value, bit_length)
+        bit_length = utils.get_bit_length(value)
+        bits = utils.get_binary_representation(value, bit_length)
         extended_bits = bits
         for i in range(shift):
             extended_bits = '0' + extended_bits
             carry_out = extended_bits[-1]
             shifted_value = extended_bits[0:bit_length]
             extended_bits = shifted_value
-        new_value = self.convert_bits_to_type(shifted_value, 'hex')
+        new_value = utils.convert_bits_to_type(shifted_value, 'hex')
         carry_out = int(carry_out)
         return (new_value, carry_out)
     
@@ -4782,8 +4618,8 @@ class RegisterEvaluator:
             return (value, 0)
         if shift > 32:
             return (None, 0)
-        bit_length = self.get_bit_length(value)
-        bits = self.get_binary_representation(value, bit_length)
+        bit_length = utils.get_bit_length(value)
+        bits = utils.get_binary_representation(value, bit_length)
         leftmost_bit = bits[0]
         extended_bits = bits
         for i in range(shift):
@@ -4791,7 +4627,7 @@ class RegisterEvaluator:
             carry_out = extended_bits[-1]
             shifted_value = extended_bits[0:bit_length]
             extended_bits = shifted_value
-        new_value = self.convert_bits_to_type(shifted_value, 'hex')
+        new_value = utils.convert_bits_to_type(shifted_value, 'hex')
         carry_out = int(carry_out)
         return (new_value, carry_out)
         
@@ -4807,14 +4643,14 @@ class RegisterEvaluator:
             return (value, 0)
         if shift > 31:
             return (None, 0)
-        bit_length = self.get_bit_length(value)
-        bits = self.get_binary_representation(value, bit_length)
+        bit_length = utils.get_bit_length(value)
+        bits = utils.get_binary_representation(value, bit_length)
         shifted_bits = bits
         for i in range(shift):
             rightmost_bit = bits[-1]
             shifted_bits = rightmost_bit + bits
             bits = shifted_bits[0:bit_length]
-        new_value = self.convert_bits_to_type(bits, 'hex')
+        new_value = utils.convert_bits_to_type(bits, 'hex')
         carry_out = int(rightmost_bit)
         return (new_value, carry_out)
         
@@ -4828,13 +4664,13 @@ class RegisterEvaluator:
         """
         if carry_in == None: carry_in = '0'
         if type(carry_in) is int: carry_in = str(carry_in)
-        bit_length = self.get_bit_length(value)
-        bits = self.get_binary_representation(value, bit_length)
+        bit_length = utils.get_bit_length(value)
+        bits = utils.get_binary_representation(value, bit_length)
         shifted_bits = bits
         carry_out = int(bits[-1])
         shifted_bits = carry_in + bits
         bits = shifted_bits[0:bit_length]
-        new_value = self.convert_bits_to_type(bits, 'hex')
+        new_value = utils.convert_bits_to_type(bits, 'hex')
         return (new_value, carry_out)
         
     def add_with_carry(self, x, y, carry_in=0, num_bits = 32, sub=False):
@@ -4850,7 +4686,7 @@ class RegisterEvaluator:
         orig_x = x
         orig_y = y
         if sub == True:
-            np_dtype = self.get_numpy_type([x, y])
+            np_dtype = utils.get_numpy_type([x, y])
             y = np.bitwise_not(
                 y.astype(np_dtype),
                 dtype=np_dtype,

@@ -726,7 +726,7 @@ class CoiProcessor:
             memory_regs['memory']
         )
         if address_type == consts.ADDRESS_FIRMWARE:
-            value = self.reg_eval.get_firmware_bytes(
+            value = utils.get_firmware_bytes(
                 mem_address,
                 num_bytes,
                 'hex',
