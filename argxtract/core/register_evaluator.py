@@ -1002,7 +1002,7 @@ class RegisterEvaluator:
         comparison_value = None
         comp_address = None
         for i in range(5):
-            address = self.get_previous_address(self.all_addresses, address)
+            address = utils.get_previous_address(self.all_addresses, address)
             prev_insn = common_objs.disassembled_firmware[address]
             if prev_insn['is_data'] == True:
                 continue
@@ -3913,7 +3913,7 @@ class RegisterEvaluator:
     # =======================================================================
     
     def get_return_trace_obj(self, trace_obj, address):
-        prev_address = self.get_previous_address(self.all_addresses, address)
+        prev_address = utils.get_previous_address(self.all_addresses, address)
         trace_obj_list = self.generate_return_trace_obj(
             self.master_trace_obj,
             prev_address,
@@ -4496,34 +4496,7 @@ class RegisterEvaluator:
         
     # =======================================================================  
     #-------------------------- Utility functions ---------------------------
-    
-    def get_previous_address(self, address_obj, address):
-        if address_obj == None: return None
-        if address == None: return None
-        
-        if address in address_obj:
-            index = address_obj.index(address)
-            if index == 0:
-                return None
-            prev_address = address_obj[index - 1]
-        else:
-            prev_address = self.get_previous_partial_address(
-                address_obj,
-                address
-            )
-        return prev_address
-    
-    def get_previous_partial_address(self, address_obj, address):
-        if address_obj == None: return None
-        if address == None: return None
-            
-        if address not in address_obj:
-            for i in range(1,4):
-                if (address-i) in address_obj:
-                    address = address-i
-                    break
-        return address
-            
+
     def get_next_address(self, address_obj, ins_address):
         if address_obj == None: return None
         if ins_address == None: return None

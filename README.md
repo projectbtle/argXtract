@@ -1,7 +1,7 @@
 ![banner](docs/banner.png)
 
 # argXtract
-argXtract enables the extraction of arguments to SVC Calls from stripped IoT binaries. Vendor-specific customisation is required before the tool can be used.
+argXtract enables the extraction of arguments to *Calls of Interest* (SVC Calls and function calls<sup><mark>POC</mark></sup>) from stripped IoT binaries. 
 
 
 ## Requirements
@@ -10,7 +10,7 @@ Python 3.7+ (older versions will **not** work).
 Install pre-requisites using `pip install -r requirements.txt`.
 
 ## Configuration
-Even though the tracing and value analysis functionalities are generic, it does not perform zero-knowledge analysis. Some vendor-specific information is required, and must be specified in a certain format. Details on how to do this are given in the [documentation](docs/vendor-config.md).
+Even though the tracing and value analysis functionalities are generic, `argXtract` does not perform zero-knowledge analysis. Some vendor-specific information is required, and must be specified in a certain format. Details on how to do this are given in the [documentation](docs/vendor-config.md). We have provided example configurations for Nordic BLE and ANT+.
 
 
 ## Execution

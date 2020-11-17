@@ -25,6 +25,8 @@ class FirmwareDisassembler:
         self.arm_switch8 = None
         
     def estimate_app_code_base(self):
+        logging.info('Estimating app code base.')
+        
         # Get AVT
         self.read_vector_table()
 
@@ -108,7 +110,7 @@ class FirmwareDisassembler:
         common_objs.application_vector_table = application_vector_table
         debug_msg = 'Partial Application Vector Table:'
         for avt_entry in application_vector_table:
-            debug_msg += '\n\t\t\t\t' \
+            debug_msg += '\n\t\t\t\t\t\t\t\t' \
                          + avt_entry \
                          + ': ' \
                          + hex(application_vector_table[avt_entry]) 
@@ -165,6 +167,18 @@ class FirmwareDisassembler:
                             + '. Adding to errored instructions.'
                         )
                     continue
+                if (abs(ldr_target-ins_address) > 4096):
+                    if ins_address not in common_objs.errored_instructions:
+                        common_objs.errored_instructions.append(ins_address)
+                        logging.trace(
+                            'LDR target ('
+                            + hex(ldr_target)
+                            + ') is at an offset greater than 4096 '
+                            + 'for LDR call at '
+                            + hex(ins_address)
+                            + '. Adding to errored instructions.'
+                        )
+                    continue
                 data_bytes = self.get_ldr_target_data_bytes(ldr_target)
                 if len(data_bytes) < 4:
                     data_bytes = self.get_data_from_next_instruction(
@@ -200,7 +214,9 @@ class FirmwareDisassembler:
         common_objs.disassembled_firmware = disassembled_fw
         disassembled_fw = None
         
-    def identify_inline_data(self):    
+    def identify_inline_data(self):   
+        logging.info('Identifying inline data.')
+        
         # Add dummy keys, to handle Capstone issues.
         disassembled_firmware_with_dummy_keys = self.add_dummy_keys(
             common_objs.disassembled_firmware
@@ -228,7 +244,7 @@ class FirmwareDisassembler:
                 if 'data' not in common_objs.disassembled_firmware[address]:
                     continue
                 data = common_objs.disassembled_firmware[address]['data']
-                trace_msg += '\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
+                trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
                                             hex(data),
                                             'data',
                                             '')
@@ -281,7 +297,7 @@ class FirmwareDisassembler:
                 'is_data': False
             }
             bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
-            trace_msg += '\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(instruction.address,
+            trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(instruction.address,
                                             bytes,
                                             instruction.mnemonic,
                                             instruction.op_str)
@@ -771,6 +787,7 @@ class FirmwareDisassembler:
         if data_start_real_address == '':
             return
         all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
         last_address = all_addresses[-1]
         if data_start_firmware_address >= last_address:
             return
@@ -786,9 +803,9 @@ class FirmwareDisassembler:
                         endian='big'
                     )
                 data_region[real_address] = data_region_value
+                common_objs.disassembled_firmware[fw_address]['data'] = \
+                    int(data_region_value, 16)
             common_objs.disassembled_firmware[fw_address]['is_data'] = True
-            common_objs.disassembled_firmware[fw_address]['data'] = \
-                int(data_region_value, 16)
             real_address += 2
             fw_address += 2
         common_objs.data_region = data_region
@@ -826,6 +843,13 @@ class FirmwareDisassembler:
         # However, if next instruction contains 4 bytes, then we need to use two,
         #  and push the other two to next address.
         elif len(next_ins_bytes) == 4:
+            if (ldr_target+4) not in common_objs.disassembled_firmware:
+                logging.error(
+                    'Required 4 bytes not found. '
+                    + 'See ldr target referenced from: '
+                    + hex(ins_address)
+                )
+                return consts.ERROR_INVALID_INSTRUCTION
             data_bytes += next_ins_bytes[0:2]
             common_objs.disassembled_firmware[ldr_target+4]['bytes'] = \
                 next_ins_bytes[2:]

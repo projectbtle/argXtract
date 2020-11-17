@@ -14,6 +14,7 @@ from argxtract.core import consts
 from argxtract.common import objects as common_objs
 from argxtract.core.chipset_analyser import ChipsetAnalyser
 from argxtract.core.register_evaluator import RegisterEvaluator
+from argxtract.core.function_pattern_matcher import FunctionPatternMatcher
 
 
 class CoiProcessor:
@@ -99,8 +100,10 @@ class CoiProcessor:
             return self.chipset_analyser.get_svc_num(svc_name)
 
     #------------------- Function Addresses Enumeration ----------------------#
-    def identify_function_addresses(self):
-        pass
+    def identify_function_addresses(self, coi_address_object):
+        self.pattern_matcher = FunctionPatternMatcher()
+        function_addresses = \
+            self.pattern_matcher.match_vendor_functions()
     
     
     #-------------------- Trace -----------------------#

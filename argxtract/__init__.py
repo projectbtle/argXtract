@@ -54,7 +54,7 @@ addLoggingLevel('TRACE', logging.DEBUG - 5)
 
 logging.basicConfig(
         stream=sys.stdout,
-        format='%(levelname)-8s %(filename)-22s %(message)s',
-        datefmt='%Y-%m-%d:%H:%M:%S',
+        format='%(asctime)s | %(levelname)-8s %(filename)-22s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
         level=logging.DEBUG
     )

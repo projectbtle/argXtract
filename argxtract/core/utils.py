@@ -32,6 +32,7 @@ def id_function_block_for_instruction(ins_address):
     
 def id_function_block_end(function_block_start):
     all_addresses = list(common_objs.disassembled_firmware.keys())
+    all_addresses.sort()
     function_block_starts = list(common_objs.function_blocks.keys())
     curr_index = function_block_starts.index(function_block_start)
     if curr_index < (len(function_block_starts)-1):
@@ -261,3 +262,53 @@ def get_firmware_bytes(address, num_bytes=4, dtype='hex',
     # Type conversion.
     value = convert_type(value, dtype)
     return value
+    
+def get_next_address(list_obj, item):
+    if list_obj == None: return None
+    if item == None: return None
+    
+    if type(list_obj) is dict:
+        list_obj = list(list_obj.keys())
+        list_obj.sort()
+            
+    if item not in list_obj:
+        for x in range(len(list_obj)):
+            address = list_obj[x]
+            if item > address:
+                item = address
+                break
+    if item not in list_obj: return None
+    
+    # Find index of the address and get next one up.
+    if (list_obj.index(item)) < (len(list_obj) - 1):
+        next_address = list_obj[list_obj.index(item) + 1]
+    else:
+        next_address = None
+    return next_address
+    
+def get_previous_address(address_obj, address):
+    if address_obj == None: return None
+    if address == None: return None
+    
+    if address in address_obj:
+        index = address_obj.index(address)
+        if index == 0:
+            return None
+        prev_address = address_obj[index - 1]
+    else:
+        prev_address = get_previous_partial_address(
+            address_obj,
+            address
+        )
+    return prev_address
+
+def get_previous_partial_address(address_obj, address):
+    if address_obj == None: return None
+    if address == None: return None
+        
+    if address not in address_obj:
+        for i in range(1,4):
+            if (address-i) in address_obj:
+                address = address-i
+                break
+    return address

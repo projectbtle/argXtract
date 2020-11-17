@@ -102,6 +102,7 @@ class argxtract:
             choices = ['s', 'f'],
             action = 'store',
             nargs = '?',
+            required=True,
             help = 'analysis mode. '
                    + 'Either s (SVC) '
                    + 'or f (function).'

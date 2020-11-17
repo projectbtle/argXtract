@@ -106,6 +106,7 @@ class FirmwareAnalyser:
         self.function_evaluator.populate_denylist()
         
         # Perform function pattern matching.
+        # This identifies "internal use" functions, such as memset.
         self.function_evaluator.perform_function_pattern_matching()
 
         """ Step 4: Mark locations of COIs """

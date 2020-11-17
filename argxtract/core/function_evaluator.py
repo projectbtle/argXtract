@@ -114,7 +114,7 @@ class FunctionEvaluator:
         for fb_start_address in function_blocks:
             end = function_blocks[fb_start_address]['end']
             if end == 'END':
-                end = (list(common_objs.disassembled_firmware.keys()))[-1]
+                end = all_addresses[-1]
             xref_to = self.get_xref_to(fb_start_address, end)
             function_blocks[fb_start_address]['xref_to'] = xref_to
         common_objs.function_blocks = function_blocks
@@ -128,7 +128,7 @@ class FunctionEvaluator:
         address = fb_start
         xref_to = []
         while ((address != None) and (address <= fb_end)):
-            address = self.get_next_address(self.all_addresses, address)
+            address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
             if address > fb_end: break
             if address in common_objs.errored_instructions: break
@@ -397,7 +397,7 @@ class FunctionEvaluator:
         branches = {}
         while address <= end:
             if address in common_objs.errored_instructions:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             fw_bytes = common_objs.disassembled_firmware[address]
@@ -426,11 +426,11 @@ class FunctionEvaluator:
                             skip_end = True
                             break
                 if skip_end == True:
-                    address = self.get_next_address(self.all_addresses, address)
+                    address = utils.get_next_address(self.all_addresses, address)
                     if address == None: break
                     continue
                     
-                next_ins = self.get_next_address(self.all_addresses, address)
+                next_ins = utils.get_next_address(self.all_addresses, address)
                 next_ins = self.get_valid_next_start(next_ins, end)
                 if next_ins == None: break
                 if next_ins > end:
@@ -509,7 +509,7 @@ class FunctionEvaluator:
                 )
             
             # Analyse next instruction.
-            address = self.get_next_address(self.all_addresses, address)
+            address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
             continue
 
@@ -520,7 +520,7 @@ class FunctionEvaluator:
         if address == None: return None
         while address <= end:
             if common_objs.disassembled_firmware[address]['is_data'] == True:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 start = address
                 if address == None:
                     break
@@ -529,7 +529,7 @@ class FunctionEvaluator:
             if insn.id == ARM_INS_INVALID:
                 break
             if self.check_for_nop(insn.id, insn.operands) == True:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 start = address
                 if address == None:
                     break
@@ -663,13 +663,13 @@ class FunctionEvaluator:
             ins_count = 0
             while ins_count < 10:
                 if address in common_objs.errored_instructions:
-                    address = self.get_next_address(self.all_addresses, address)
+                    address = utils.get_next_address(self.all_addresses, address)
                     ins_count += 1
                     continue
                 at_address = common_objs.disassembled_firmware[address]
                 if ((at_address['is_data'] == True) 
                         or (at_address['insn'] == None)):
-                    address = self.get_next_address(self.all_addresses, address)
+                    address = utils.get_next_address(self.all_addresses, address)
                     ins_count += 1
                     continue
                 if at_address['insn'].id == ARM_INS_B:
@@ -677,7 +677,7 @@ class FunctionEvaluator:
                     if branch_target in functions:
                         caller_functions.append(function_tuples[idx])
                         break
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 ins_count += 1
         for function in caller_functions:
             function_tuples.remove(function)
@@ -700,7 +700,7 @@ class FunctionEvaluator:
             current_position = common_objs.disassembled_firmware[address]
             if ((current_position['is_data'] == True) 
                     or (current_position['insn'] == None)):
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 continue
                 
             insn = current_position['insn']
@@ -712,7 +712,7 @@ class FunctionEvaluator:
                     and (insn.cc != ARM_CC_AL) 
                     and (insn.cc != ARM_CC_INVALID)):
                 is_cmp = True
-            address = self.get_next_address(self.all_addresses, address)
+            address = utils.get_next_address(self.all_addresses, address)
             
         # Memset doesn't have self-targeting branches.
         if is_self_branch == True: return (False, None, None)
@@ -729,7 +729,7 @@ class FunctionEvaluator:
             current_position = common_objs.disassembled_firmware[address]
             if ((current_position['is_data'] == True) 
                     or (current_position['insn'] == None)):
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 ins_count += 1
                 continue
                 
@@ -737,9 +737,9 @@ class FunctionEvaluator:
             if (insn.id == ARM_INS_B):
                 address = insn.operands[0].value.imm
                 if address not in common_objs.disassembled_firmware:
-                    address = self.get_next_address(self.all_addresses, address)
+                    address = utils.get_next_address(self.all_addresses, address)
             else:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 
             ins_count += 1
             ins_order.append(address)
@@ -824,7 +824,7 @@ class FunctionEvaluator:
         while address <= end_of_block:
             if ((address in common_objs.errored_instructions) 
                     or (common_objs.disassembled_firmware[address]['is_data'] == True)):
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
 
@@ -852,7 +852,7 @@ class FunctionEvaluator:
                     src_operand = operands[1]
                 if src_operand.value.reg == numerator:
                     num_lsr += 1
-            address = self.get_next_address(self.all_addresses, address)
+            address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
         if num_lsr == 0:
             return False
@@ -905,15 +905,15 @@ class FunctionEvaluator:
         address = fb_start_address
         while ((address != None) and (address <= fb_end_address)):
             if address not in common_objs.disassembled_firmware:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             if address in common_objs.errored_instructions:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             if common_objs.disassembled_firmware[address]['is_data'] == True:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             at_address = common_objs.disassembled_firmware[address]
@@ -930,7 +930,7 @@ class FunctionEvaluator:
                     last_ins_for_target = at_address['last_insn_address']
                     if last_ins_for_target == branch_target:
                         return True
-            address = self.get_next_address(self.all_addresses, address)
+            address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
         return False
         
@@ -939,15 +939,15 @@ class FunctionEvaluator:
         address = start_address
         while ((address != None) and (address < end_address)):
             if address not in common_objs.disassembled_firmware:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             if address in common_objs.errored_instructions:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             if common_objs.disassembled_firmware[address]['is_data'] == True:
-                address = self.get_next_address(self.all_addresses, address)
+                address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
             insn = common_objs.disassembled_firmware[address]['insn']
@@ -960,52 +960,6 @@ class FunctionEvaluator:
             )
             if is_nop_error == False:
                 all_nop_error = False
-            address = self.get_next_address(self.all_addresses, address)
+            address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
         return all_nop_error
-    
-    def get_next_address(self, address_obj, ins_address):
-        if address_obj == None: return None
-        if ins_address == None: return None
-        
-        if ins_address not in address_obj:
-            for x in range(len(address_obj)):
-                address = address_obj[x]
-                if ins_address > address:
-                    ins_address = address
-                    break
-        if ins_address not in address_obj: return None
-        
-        # Find index of the address and get next one up.
-        if (address_obj.index(ins_address)) < (len(address_obj) - 1):
-            next_address = address_obj[address_obj.index(ins_address) + 1]
-        else:
-            next_address = None
-        return next_address
-        
-    def get_previous_address(self, address_obj, address):
-        if address_obj == None: return None
-        if address == None: return None
-        
-        if address in address_obj:
-            index = address_obj.index(address)
-            if index == 0:
-                return None
-            prev_address = address_obj[index - 1]
-        else:
-            prev_address = self.get_previous_partial_address(
-                address_obj,
-                address
-            )
-        return prev_address
-    
-    def get_previous_partial_address(self, address_obj, address):
-        if address_obj == None: return None
-        if address == None: return None
-            
-        if address not in address_obj:
-            for i in range(1,4):
-                if (address-i) in address_obj:
-                    address = address-i
-                    break
-        return address
