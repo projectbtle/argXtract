@@ -7,13 +7,13 @@ from capstone.arm import *
 from argxtract.common import paths as common_paths
 from argxtract.core import utils
 from argxtract.core import consts
+from argxtract.core import binary_operations as binops
 from argxtract.common import objects as common_objs
-from argxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FunctionEvaluator:
     def __init__(self):
-        self.reg_eval = RegisterEvaluator()
+        pass
         
     def estimate_function_blocks(self):
         logging.info(
@@ -475,7 +475,7 @@ class FunctionEvaluator:
                             switch8_index += 1
                             switch_table_index = utils.get_firmware_bytes(switch8_index, 1)
                             (result,carry) = \
-                                self.reg_eval.logical_shift_left(switch_table_index, 1)
+                                binops.logical_shift_left(switch_table_index, 1)
                             result_bin = utils.get_binary_representation(result, 8)
                             result = str(carry) + result_bin
                             switch8_address = lr_value + int(result, 2)

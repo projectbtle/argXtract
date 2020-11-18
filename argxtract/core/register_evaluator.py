@@ -14,6 +14,7 @@ from capstone.arm import *
 from random import getrandbits
 from argxtract.core import utils
 from argxtract.core import consts
+from argxtract.core import binary_operations as binops
 from argxtract.common import paths as common_paths
 from argxtract.common import objects as common_objs
 
@@ -1652,7 +1653,7 @@ class RegisterEvaluator:
 
         carry_in = condition_flags['c']
         if carry_in == None: carry_in = 0
-        (result, carry, overflow) = self.add_with_carry(
+        (result, carry, overflow) = binops.add_with_carry(
             start_value,
             add_value,
             carry_in
@@ -1717,7 +1718,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        (result, carry, overflow) = self.add_with_carry(start_value, add_value)
+        (result, carry, overflow) = binops.add_with_carry(start_value, add_value)
 
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -1873,7 +1874,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
-        (result, carry) = self.arithmetic_shift_right(src_value, shift_value)
+        (result, carry) = binops.arithmetic_shift_right(src_value, shift_value)
         if result == None: 
             null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
@@ -2148,10 +2149,10 @@ class RegisterEvaluator:
         overflow = None
         if opcode_id == ARM_INS_CMN:
             (result, carry, overflow) = \
-                self.add_with_carry(operand1, operand2)
+                binops.add_with_carry(operand1, operand2)
         elif opcode_id == ARM_INS_CMP:
             (result, carry, overflow) = \
-                self.add_with_carry(operand1, operand2, 1, sub=True)
+                binops.add_with_carry(operand1, operand2, 1, sub=True)
         elif opcode_id == ARM_INS_TST:
             np_dtype = utils.get_numpy_type([operand1, operand2])
             result = np.bitwise_and(
@@ -2452,7 +2453,7 @@ class RegisterEvaluator:
                 or (opcode_id == ARM_INS_LDREXH)):
             src_value = src_value.zfill(8)
         elif ((opcode_id == ARM_INS_LDRSB) or (opcode_id == ARM_INS_LDRSH)):
-            src_value = self.sign_extend(src_value)
+            src_value = binops.sign_extend(src_value)
         
         logging.trace('Value to load: ' + str(src_value))
         next_reg_values = self.store_register_bytes(
@@ -2601,7 +2602,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
-        (result, carry) = self.logical_shift_left(src_value, shift_value)
+        (result, carry) = binops.logical_shift_left(src_value, shift_value)
         if result == None: 
             null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
@@ -2653,7 +2654,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
-        (result, carry) = self.logical_shift_right(src_value, shift_value)
+        (result, carry) = binops.logical_shift_right(src_value, shift_value)
         if result == None: 
             null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
@@ -3291,7 +3292,7 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
             
-        (result, carry) = self.rotate_right(src_value, shift_value)
+        (result, carry) = binops.rotate_right(src_value, shift_value)
         if result == None: 
             null_registers[dst_operand] = {}
         next_reg_values = self.store_register_bytes(
@@ -3335,7 +3336,7 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         # Process shift.
-        (result, carry) = self.rotate_right_with_extend(
+        (result, carry) = binops.rotate_right_with_extend(
             src_value,
             condition_flags['c']
         )
@@ -3396,7 +3397,7 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
 
         (result, carry, overflow) = \
-            self.add_with_carry(add_value, start_value, 1, sub=True)
+            binops.add_with_carry(add_value, start_value, 1, sub=True)
             
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3458,7 +3459,7 @@ class RegisterEvaluator:
         carry_in = condition_flags['c']
         if carry_in == None: carry_in = 0
         (result, carry, overflow) = \
-            self.add_with_carry(start_value, add_value, carry_in, sub=True)
+            binops.add_with_carry(start_value, add_value, carry_in, sub=True)
             
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3697,7 +3698,7 @@ class RegisterEvaluator:
             return (next_reg_values, condition_flags, null_registers)
         
         (result, carry, overflow) = \
-            self.add_with_carry(start_value, add_value, 1, sub=True)
+            binops.add_with_carry(start_value, add_value, 1, sub=True)
             
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3752,7 +3753,7 @@ class RegisterEvaluator:
             src_value = src_value[-4:]
         
         # This is the actual extension.
-        extended_value = self.sign_extend(src_value)
+        extended_value = binops.sign_extend(src_value)
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -3987,15 +3988,15 @@ class RegisterEvaluator:
             shift_value = src_operand.shift.value
             shift_type = src_operand.shift.type
             if shift_type == ARM_SFT_ASR:
-                (src_value, carry) = self.arithmetic_shift_right(src_value, shift_value)
+                (src_value, carry) = binops.arithmetic_shift_right(src_value, shift_value)
             elif shift_type == ARM_SFT_LSL:
-                (src_value, carry) = self.logical_shift_left(src_value, shift_value)
+                (src_value, carry) = binops.logical_shift_left(src_value, shift_value)
             elif shift_type == ARM_SFT_LSR:
-                (src_value, carry) = self.logical_shift_right(src_value, shift_value)
+                (src_value, carry) = binops.logical_shift_right(src_value, shift_value)
             elif shift_type == ARM_SFT_ROR:
-                (src_value, carry) = self.rotate_right(src_value, shift_value)
+                (src_value, carry) = binops.rotate_right(src_value, shift_value)
             elif shift_type == ARM_SFT_RRX:
-                (src_value, carry) = self.rotate_right_with_extend(
+                (src_value, carry) = binops.rotate_right_with_extend(
                     src_value, carry_in
                 )
         else:
@@ -4061,7 +4062,7 @@ class RegisterEvaluator:
                 index_register,
                 'int'
             )
-            (offset_value, _) = self.logical_shift_left(offset_value, lshift)
+            (offset_value, _) = binops.logical_shift_left(offset_value, lshift)
         # Immediate offset.
         else:
             offset_value = offset
@@ -4527,232 +4528,6 @@ class RegisterEvaluator:
         string_mem += '}'
         return string_mem
 
-        
-    # =======================================================================   
-    #----------------------------- Arithmetic ops ---------------------------
-    
-    def logical_shift_left(self, value, shift):
-        """Logical Shift Left
-        
-        (LSL) moves each bit of a bitstring left by a specified number of bits.
-        Zeros are shifted in at the right end of the bitstring.
-        Bits that are shifted off the left end of the bitstring are discarded, 
-        except that the last such bit can be produced as a carry output.
-        """
-        if shift == 0:
-            return (value, 0)
-        if shift > 31:
-            return (None, 0)
-        bit_length = utils.get_bit_length(value)
-        bits = utils.get_binary_representation(value, bit_length)
-        extended_bits = bits
-        for i in range(shift):
-            extended_bits += '0'
-            carry_out = extended_bits[0]
-            shifted_value = extended_bits[(-1*bit_length):]
-            extended_bits = shifted_value
-        new_value = utils.convert_bits_to_type(extended_bits, 'hex')
-        carry_out = int(carry_out)
-        return (new_value, carry_out)
-        
-    def logical_shift_right(self, value, shift):
-        """Logical Shift Right
-        
-        (LSR) moves each bit of a bitstring right by a specified number of bits.
-        Zeros are shifted in at the left end of the bitstring. 
-        Bits that are shifted off the right end of the bitstring are discarded, 
-        except that the last such bit can be produced as a carry output.
-        """
-        if shift == 0:
-            return (value, 0)
-        if shift > 32:
-            return (None, 0)
-        bit_length = utils.get_bit_length(value)
-        bits = utils.get_binary_representation(value, bit_length)
-        extended_bits = bits
-        for i in range(shift):
-            extended_bits = '0' + extended_bits
-            carry_out = extended_bits[-1]
-            shifted_value = extended_bits[0:bit_length]
-            extended_bits = shifted_value
-        new_value = utils.convert_bits_to_type(shifted_value, 'hex')
-        carry_out = int(carry_out)
-        return (new_value, carry_out)
-    
-    def arithmetic_shift_right(self, value, shift):
-        """Arithmetic Shift Right
-        
-        (ASR) moves each bit of a bitstring right by a specified number of bits. 
-        Copies of the leftmost bit are shifted in at the left end of the bitstring. 
-        Bits that are shifted off the right end of the bitstring are discarded, 
-        except that the last such bit can be produced as a carry output.
-        """
-        if shift == 0:
-            return (value, 0)
-        if shift > 32:
-            return (None, 0)
-        bit_length = utils.get_bit_length(value)
-        bits = utils.get_binary_representation(value, bit_length)
-        leftmost_bit = bits[0]
-        extended_bits = bits
-        for i in range(shift):
-            extended_bits = leftmost_bit + extended_bits
-            carry_out = extended_bits[-1]
-            shifted_value = extended_bits[0:bit_length]
-            extended_bits = shifted_value
-        new_value = utils.convert_bits_to_type(shifted_value, 'hex')
-        carry_out = int(carry_out)
-        return (new_value, carry_out)
-        
-    def rotate_right(self, value, shift):
-        """Rotate Right
-        
-        (ROR) moves each bit of a bitstring right by a specified number of bits. 
-        Each bit that is shifted off the right end of the bitstring is 
-        re-introduced at the left end. The last bit shifted off the the right end 
-        of the bitstring can be produced as a carry output.
-        """
-        if shift == 0:
-            return (value, 0)
-        if shift > 31:
-            return (None, 0)
-        bit_length = utils.get_bit_length(value)
-        bits = utils.get_binary_representation(value, bit_length)
-        shifted_bits = bits
-        for i in range(shift):
-            rightmost_bit = bits[-1]
-            shifted_bits = rightmost_bit + bits
-            bits = shifted_bits[0:bit_length]
-        new_value = utils.convert_bits_to_type(bits, 'hex')
-        carry_out = int(rightmost_bit)
-        return (new_value, carry_out)
-        
-    def rotate_right_with_extend(self, value, carry_in=None):
-        """Rotate Right with Extend
-        
-        (RRX) moves each bit of a bitstring right by one bit. 
-        The carry input is shifted in at the left end of the bitstring. 
-        The bit shifted off the right end of the bitstring can be produced 
-        as a carry output.
-        """
-        if carry_in == None: carry_in = '0'
-        if type(carry_in) is int: carry_in = str(carry_in)
-        bit_length = utils.get_bit_length(value)
-        bits = utils.get_binary_representation(value, bit_length)
-        shifted_bits = bits
-        carry_out = int(bits[-1])
-        shifted_bits = carry_in + bits
-        bits = shifted_bits[0:bit_length]
-        new_value = utils.convert_bits_to_type(bits, 'hex')
-        return (new_value, carry_out)
-        
-    def add_with_carry(self, x, y, carry_in=0, num_bits = 32, sub=False):
-        """
-        bits(N), bit, bit) AddWithCarry(bits(N) x, bits(N) y, bit carry_in)
-            unsigned_sum = self.uint(x) + self.uint(y) + self.uint(carry_in);
-            signed_sum = self.sint(x) + self.sint(y) + self.uint(carry_in);
-            result = unsigned_sum<N-1:0>; // same value as signed_sum<N-1:0>
-            carry_out = if self.uint(result) == unsigned_sum then ‘0’ else ‘1’;
-            overflow = if self.sint(result) == signed_sum then ‘0’ else ‘1’;
-            return (result, carry_out, overflow);
-        """
-        orig_x = x
-        orig_y = y
-        if sub == True:
-            np_dtype = utils.get_numpy_type([x, y])
-            y = np.bitwise_not(
-                y.astype(np_dtype),
-                dtype=np_dtype,
-                casting='safe'
-            )
-        try:
-            if num_bits == 32:
-                np.seterr(over='ignore')
-                uint_x = np.uint32(x)
-                np.seterr(over='ignore')
-                int_x = np.int32(x)
-                np.seterr(over='ignore')
-                uint_y = np.uint32(y)
-                np.seterr(over='ignore')
-                int_y = np.int32(y)
-                np.seterr(over='ignore')
-                uint_carry_in = np.uint32(carry_in)
-            elif num_bits == 16:
-                np.seterr(over='ignore')
-                uint_x = np.uint16(x)
-                np.seterr(over='ignore')
-                int_x = np.int16(x)
-                np.seterr(over='ignore')
-                uint_y = np.uint16(y)
-                np.seterr(over='ignore')
-                int_y = np.int16(y)
-                np.seterr(over='ignore')
-                uint_carry_in = np.uint16(carry_in)
-            elif num_bits == 8:
-                np.seterr(over='ignore')
-                uint_x = np.uint8(x)
-                np.seterr(over='ignore')
-                int_x = np.int8(x)
-                np.seterr(over='ignore')
-                uint_y = np.uint8(y)
-                np.seterr(over='ignore')
-                int_y = np.int8(y)
-                np.seterr(over='ignore')
-                uint_carry_in = np.uint8(carry_in)
-                
-            np.seterr(over='ignore')
-            unsigned_sum = uint_x + uint_y + uint_carry_in
-            np.seterr(over='ignore')
-            signed_sum = int_x + int_y + uint_carry_in
-            
-            # Set result.
-            np.seterr(over='ignore')
-            result = np.uint32(unsigned_sum)
-            
-            # Set carry.
-            np.seterr(over='ignore')
-            if np.uint32(result) == unsigned_sum:
-                carry_out = 0
-            else:
-                carry_out = 1
-
-            # Set overflow.
-            np.seterr(over='ignore')
-            if np.int32(result) == signed_sum:
-                overflow = 0
-            else:
-                overflow = 1
-                
-            if sub == True:
-                existing = result
-                if carry_in == 1:
-                    if orig_x >= orig_y:
-                        carry_out = 1
-                if carry_in == 0:
-                    if orig_x > orig_y:
-                        carry_out = 1
-            return (result, carry_out, overflow)
-        except:
-            return (None, None, None)
-        
-    def is_zero_bit(self, x):
-        for bit in x:
-            if bit != '0':
-                return 0
-        return 1
-        
-    def sign_extend(self, value, total_bits=32):
-        bin_value = bin(int('1'+value, 16))[3:]
-        top_bit = bin_value[0]
-        length_bits = len(bin_value)
-        num_sign_bits = total_bits - length_bits
-        extended_bits = ''
-        for i in range(num_sign_bits):
-            extended_bits += top_bit
-        extended_bits += bin_value
-        extended_hex = '%0*x' % ((len(extended_bits) + 3) // 4, int(extended_bits, 2))
-        return extended_hex
-        
     # =======================================================================
     #----------------------------- Queue Handling ---------------------------
     def add_to_trace_queue(self, source, target, register_object, 

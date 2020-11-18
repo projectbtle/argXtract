@@ -104,7 +104,7 @@ class CoiProcessor:
         self.pattern_matcher = FunctionPatternMatcher()
         function_addresses = \
             self.pattern_matcher.match_vendor_functions()
-    
+        self.pattern_matcher = None
     
     #-------------------- Trace -----------------------#
     def process_coi_chains(self):

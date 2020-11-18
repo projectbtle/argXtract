@@ -23,6 +23,7 @@ class VendorChipsetAnalyser:
         self.sdk_version = None
         self.estimated = True
         self.soc_family = None
+        self.vendor_svc_set = {}
         
     def test_binary_against_vendor(self):
         logging.info('Checking whether firmware matches Nordic profile.')
@@ -522,3 +523,4 @@ class VendorChipsetAnalyser:
         self.sdk_version = None
         self.estimated = True
         self.soc_family = None
+        self.vendor_svc_set = {}

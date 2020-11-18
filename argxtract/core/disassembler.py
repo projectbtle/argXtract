@@ -11,7 +11,6 @@ from argxtract.common import paths as common_paths
 from argxtract.core import utils
 from argxtract.core import consts
 from argxtract.common import objects as common_objs
-from argxtract.core.register_evaluator import RegisterEvaluator
 
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB + CS_MODE_LITTLE_ENDIAN)
 # Turn on SKIPDATA mode - this is needed!
@@ -21,7 +20,6 @@ md.detail = True
 
 class FirmwareDisassembler:
     def __init__(self):
-        self.reg_eval = RegisterEvaluator()
         self.arm_switch8 = None
         
     def estimate_app_code_base(self):
@@ -153,7 +151,7 @@ class FirmwareDisassembler:
                 prev_insn = common_objs.disassembled_firmware[ins_address-2]['insn']
                 if prev_insn.id != ARM_INS_LDR:
                     continue
-                curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address-2)
+                curr_pc_value = self.get_mem_access_pc_value(ins_address-2)
                 ldr_target = curr_pc_value + prev_insn.operands[1].mem.disp
                 if ldr_target not in common_objs.disassembled_firmware:
                     if ins_address not in common_objs.errored_instructions:
@@ -350,7 +348,7 @@ class FirmwareDisassembler:
         
         ins_address = common_objs.code_start_address - 2
         while ins_address < min_address:
-            ins_address = self.reg_eval.get_next_address(
+            ins_address = utils.get_next_address(
                 all_addresses,
                 ins_address
             )
@@ -396,7 +394,7 @@ class FirmwareDisassembler:
                     switch8_address = lr_value
                     while switch8_address < post_skip_instruction_address:
                         common_objs.disassembled_firmware[switch8_address]['is_data'] = True
-                        switch8_address = self.reg_eval.get_next_address(
+                        switch8_address = utils.get_next_address(
                             all_addresses,
                             switch8_address
                         )
@@ -512,7 +510,7 @@ class FirmwareDisassembler:
             # If the instruction is not a valid LDR instruction, then don't bother.
             if ((self.check_valid_pc_ldr(ins_address) != True) and (insn.id != ARM_INS_ADR)):
                 continue
-            curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address)
+            curr_pc_value = self.get_mem_access_pc_value(ins_address)
             operands = insn.operands
             
             # If ADR is loading to registers other than R0-R2,
@@ -748,7 +746,7 @@ class FirmwareDisassembler:
                 continue
                 
             if insn.id == ARM_INS_LDR:
-                curr_pc_value = self.reg_eval.get_mem_access_pc_value(address)
+                curr_pc_value = self.get_mem_access_pc_value(address)
                 
                 # Target address is PC + offset.
                 operands = insn.operands
@@ -911,7 +909,7 @@ class FirmwareDisassembler:
         max_address = all_addresses[-1]
         ins_address = common_objs.code_start_address - 2
         while ins_address < min_address:
-            ins_address = self.reg_eval.get_next_address(
+            ins_address = utils.get_next_address(
                 all_addresses,
                 ins_address
             )
@@ -930,7 +928,7 @@ class FirmwareDisassembler:
                 continue
             if insn.id != ARM_INS_LDR:
                 continue
-            curr_pc_value = self.reg_eval.get_mem_access_pc_value(ins_address)
+            curr_pc_value = self.get_mem_access_pc_value(ins_address)
 
             # Target address is PC + offset.
             operands = insn.operands
@@ -944,7 +942,7 @@ class FirmwareDisassembler:
                 ldr_target_register = insn.operands[0].value.reg
                 test_address = ins_address
                 for i in range(5):
-                    test_address = self.reg_eval.get_next_address(
+                    test_address = utils.get_next_address(
                         all_addresses,
                         test_address
                     )
@@ -1086,3 +1084,19 @@ class FirmwareDisassembler:
                 continue
             if common_objs.disassembled_firmware[ins_address]['insn'].id in arch7m_ins:
                 common_objs.arm_arch = consts.ARMv7M
+                
+    def get_mem_access_pc_value(self, ins_address):
+        curr_pc_value = ins_address + 4
+        
+        # When the PC is used as a base register for addressing operations 
+        #  (i.e. adr/ldr/str/etc.) it is always the word-aligned value 
+        #  that is used, even in Thumb state. 
+        # So, whilst executing a load instruction at 0x159a, 
+        #  the PC register will read as 0x159e, 
+        #  but the base address of ldr...[pc] is Align(0x159e, 4), 
+        #  i.e. 0x159c.
+        # Ref: https://stackoverflow.com/a/29588678
+        if ((curr_pc_value % 4) != 0):
+            aligned_pc_value = curr_pc_value - (curr_pc_value % 4)
+            curr_pc_value = aligned_pc_value
+        return curr_pc_value
