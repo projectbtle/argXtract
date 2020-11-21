@@ -272,12 +272,15 @@ def get_next_address(list_obj, item):
         list_obj.sort()
             
     if item not in list_obj:
-        for x in range(len(list_obj)):
+        print('Item not in list. Estimating position.')
+        for x in range(len(list_obj)-1, -1, -1):
             address = list_obj[x]
             if item > address:
                 item = address
                 break
-    if item not in list_obj: return None
+    if item not in list_obj: 
+        print('Item not in list. Returning None.')
+        return None
     
     # Find index of the address and get next one up.
     if (list_obj.index(item)) < (len(list_obj) - 1):

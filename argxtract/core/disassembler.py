@@ -282,7 +282,7 @@ class FirmwareDisassembler:
             byte_file = f.read()
             # Save firmware bytes.
             common_objs.core_bytes = byte_file
-        
+
         disassembled = md.disasm(
             byte_file,
             common_objs.disassembly_start_address
@@ -392,14 +392,37 @@ class FirmwareDisassembler:
                         + hex(post_skip_instruction_address)
                     )
                     switch8_address = lr_value
+                    original_bytes = None
                     while switch8_address < post_skip_instruction_address:
+                        if common_objs.disassembled_firmware[switch8_address]['insn'] != None:
+                            original_bytes = \
+                                common_objs.disassembled_firmware[switch8_address]['insn'].bytes
+                        else:
+                            original_bytes = b''
                         common_objs.disassembled_firmware[switch8_address]['is_data'] = True
-                        switch8_address = utils.get_next_address(
-                            all_addresses,
+                        common_objs.disassembled_firmware[switch8_address]['insn'] = None
+                        switch8_address += 2
+                        
+                    if len(original_bytes) == 4:
+                        new_bytes = utils.get_firmware_bytes(switch8_address, 2)
+                        new_bytes = bytes.fromhex(new_bytes)
+                        new_insns = md.disasm(
+                            new_bytes,
                             switch8_address
                         )
+                        for new_insn in new_insns:
+                            logging.debug(
+                                'Re-processing instruction at '
+                                + hex(new_insn.address)
+                            )
+                            common_objs.disassembled_firmware[new_insn.address] = {
+                                'insn': new_insn,
+                                'is_data': False
+                            }
+                        
                     # 2 will be added in the loop.
                     ins_address = post_skip_instruction_address - 2
+                    print('skipping to ' + hex(ins_address))
                     continue
             
             # Table branch indices.
@@ -495,17 +518,44 @@ class FirmwareDisassembler:
                 common_objs.table_branches[ins_address]['table_branch_addresses'] = \
                     table_branch_addresses
                 
+                original_bytes = None
                 while pc_address < table_branch_max:
                     logging.debug(
                         'Marking '
                         + hex(pc_address)
                         + ' as branch index table.'
                     )
+                    # Get the original bytes, as we may need to re-disassemble.
+                    if common_objs.disassembled_firmware[pc_address]['insn'] != None:
+                        original_bytes = \
+                            common_objs.disassembled_firmware[pc_address]['insn'].bytes
+                    else:
+                        original_bytes = b''
                     common_objs.disassembled_firmware[pc_address]['is_data'] = True
                     common_objs.disassembled_firmware[pc_address]['table_index'] = True
                     common_objs.disassembled_firmware[pc_address]['insn'] = None
                     pc_address += 2
+                    
+                if len(original_bytes) == 4:
+                    new_bytes = utils.get_firmware_bytes(pc_address, 2)
+                    new_bytes = bytes.fromhex(new_bytes)
+                    new_insns = md.disasm(
+                        new_bytes,
+                        pc_address
+                    )
+                    print(new_insns)
+                    print('ok/')
+                    for new_insn in new_insns:
+                        logging.debug(
+                            'Re-processing instruction at '
+                            + hex(new_insn.address)
+                        )
+                        common_objs.disassembled_firmware[new_insn.address] = {
+                            'insn': new_insn,
+                            'is_data': False
+                        }
                 continue
+                
  
             # If the instruction is not a valid LDR instruction, then don't bother.
             if ((self.check_valid_pc_ldr(ins_address) != True) and (insn.id != ARM_INS_ADR)):
@@ -843,12 +893,29 @@ class FirmwareDisassembler:
         elif len(next_ins_bytes) == 4:
             if (ldr_target+4) not in common_objs.disassembled_firmware:
                 logging.error(
-                    'Required 4 bytes not found. '
+                    'Address '
+                    + hex(ldr_target+4)
+                    +' not found within firmware. '
                     + 'See ldr target referenced from: '
                     + hex(ins_address)
                 )
                 return consts.ERROR_INVALID_INSTRUCTION
             data_bytes += next_ins_bytes[0:2]
+            
+            # We need to re-process the instruction.
+            new_insns = md.disasm(
+                next_ins_bytes[2:],
+                ldr_target+4
+            )
+            for new_insn in new_insns:
+                logging.debug(
+                    'Re-processing instruction at '
+                    + hex(new_insn.address)
+                )
+                common_objs.disassembled_firmware[new_insn.address] = {
+                    'insn': new_insn,
+                    'is_data': False
+                }
             common_objs.disassembled_firmware[ldr_target+4]['bytes'] = \
                 next_ins_bytes[2:]
         else:

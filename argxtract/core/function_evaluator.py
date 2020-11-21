@@ -27,7 +27,7 @@ class FunctionEvaluator:
             if address < common_objs.app_code_base:
                 continue
             self.all_addresses.append(address)
-        
+
         """Find potential function blocks within assembly code.
         
         This is a multi-step process: 
@@ -641,6 +641,11 @@ class FunctionEvaluator:
         if len(possible_memsets) == 0:
             return (None, None, None)
         if len(possible_memsets) > 1: 
+            for possible_memset in possible_memsets:
+                logging.debug(
+                    'Function matches signature for memset: '
+                    + hex(possible_memset[0])
+                )
             logging.warning('Multiple candidates for memset. Using None.')
             return (None, None, None)
         memset_address = possible_memsets[0][0]
@@ -689,6 +694,8 @@ class FunctionEvaluator:
         address = start_address
         end_address = utils.id_function_block_end(start_address)
         # Prelim checks. STRB, CMP (or conditional branch) must be present.
+        # LDR must not.
+        is_ldr = False
         is_strb = False
         is_cmp = False
         is_self_branch = False
@@ -706,6 +713,10 @@ class FunctionEvaluator:
             insn = current_position['insn']
             if insn.id == ARM_INS_STRB:
                 is_strb = True
+            if insn.id in [ARM_INS_LDM, ARM_INS_LDR, ARM_INS_LDREX, 
+                    ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH, 
+                    ARM_INS_LDRB, ARM_INS_LDRSB, ARM_INS_LDREXB, ARM_INS_LDRD]:
+                is_ldr = True
             if insn.id == ARM_INS_CMP:
                 is_cmp = True
             if ((insn.id == ARM_INS_B) 
@@ -717,7 +728,7 @@ class FunctionEvaluator:
         # Memset doesn't have self-targeting branches.
         if is_self_branch == True: return (False, None, None)
         # If there isn't a STRB or CMP instruction, we needn't look any further.
-        if ((is_strb == False) or (is_cmp == False)): 
+        if ((is_strb == False) or (is_cmp == False) or (is_ldr == True)): 
             return (False, None, None)
         
         # Create an ordered set of instructions.
