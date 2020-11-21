@@ -422,7 +422,6 @@ class FirmwareDisassembler:
                         
                     # 2 will be added in the loop.
                     ins_address = post_skip_instruction_address - 2
-                    print('skipping to ' + hex(ins_address))
                     continue
             
             # Table branch indices.
@@ -543,8 +542,6 @@ class FirmwareDisassembler:
                         new_bytes,
                         pc_address
                     )
-                    print(new_insns)
-                    print('ok/')
                     for new_insn in new_insns:
                         logging.debug(
                             'Re-processing instruction at '
