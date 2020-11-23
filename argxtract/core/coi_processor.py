@@ -105,7 +105,6 @@ class CoiProcessor:
         function_addresses = \
             self.pattern_matcher.match_vendor_functions()
         common_objs.coi_addresses =  function_addresses
-        print(json.dumps(function_addresses, indent=4))
         self.pattern_matcher = None
     
     #-------------------- Trace -----------------------#
