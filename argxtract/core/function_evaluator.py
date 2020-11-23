@@ -60,14 +60,14 @@ class FunctionEvaluator:
         )
         function_block_start_addresses.sort()
         
-        # Remove the switch8 address from common_objs.replace_functions.
-        switch8_address = None
+        # Remove the switch function addresses from common_objs.replace_functions.
+        switch_addresses = []
         for address in common_objs.replace_functions:
-            if common_objs.replace_functions[address]['type'] == consts.SWITCH8:
-                switch8_address = address
-                break
-        if switch8_address != None:
-            common_objs.replace_functions.pop(switch8_address, None)
+            if (common_objs.replace_functions[address]['type'] 
+                    in [consts.FN_SWITCH8, consts.FN_GNUTHUMB, consts.FN_GNUTHUMBCALL]):
+                switch_addresses.append(address)
+        for switch_address in switch_addresses:
+            common_objs.replace_functions.pop(switch_address, None)
         
         # Create function block object.
         function_blocks = {}
@@ -456,7 +456,7 @@ class FunctionEvaluator:
             elif insn.id == ARM_INS_BL:
                 branch_target = operands[0].value.imm
                 if branch_target in common_objs.replace_functions:
-                    if common_objs.replace_functions[branch_target]['type'] == consts.SWITCH8:
+                    if common_objs.replace_functions[branch_target]['type'] == consts.FN_SWITCH8:
                         lr_value = address+4
                         switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
                         end_index = int(switch_table_len_byte, 16)
@@ -486,6 +486,26 @@ class FunctionEvaluator:
                             + hex(max_switch8_address)
                         )
                         branches[address] = [max_switch8_address]
+                    elif common_objs.replace_functions[branch_target]['type'] == consts.FN_GNUTHUMB:
+                        original_address = address
+                        table_branch_addresses = \
+                            common_objs.replace_functions[original_address]['table_branch_addresses']
+                        branches[address] = table_branch_addresses
+                        largest_table_address = max(table_branch_addresses)
+                        min_address = largest_table_address
+                        if min_address > end:
+                            logging.error(
+                                'Table address is greater than function end! '
+                                + hex(original_address)
+                            )
+                        address = common_objs.replace_functions[original_address]['table_branch_max']
+                        if address%2 == 1: address-=1
+                        logging.debug(
+                            'Processed table branch at '
+                            + hex(original_address)
+                            + '. Now skipping to ' 
+                            + hex(address)
+                        )
                         
             elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
                 original_address = address
@@ -577,7 +597,7 @@ class FunctionEvaluator:
             self.identify_memset()
         if memset_address != None:
             common_objs.replace_functions[memset_address] = {
-                'type': consts.MEMSET,
+                'type': consts.FN_MEMSET,
                 'pointer': reg_order[0],
                 'value': reg_order[1],
                 'length': reg_order[2],
@@ -593,7 +613,7 @@ class FunctionEvaluator:
                 )
                 return
             common_objs.replace_functions[udiv_address] = {
-                'type': consts.UDIV
+                'type': consts.FN_UDIV
             }
 
     def identify_memset(self):

@@ -344,7 +344,7 @@ class FirmwareDisassembler:
 
         self.handle_potential_byte_misinterpretation_errors()
         
-        self.identify_arm_switch8()
+        self.identify_switch_functions()
         
         ins_address = common_objs.code_start_address - 2
         while ins_address < min_address:
@@ -363,290 +363,434 @@ class FirmwareDisassembler:
    
             # If ID is 0, then it may mean inline data.
             if insn.id == ARM_INS_INVALID:
-                if ('byte' in insn.mnemonic):
-                    common_objs.errored_instructions.append(ins_address)
-                    logging.trace(
-                        '"byte" in mnemonic at '
-                        + hex(ins_address)
-                        + '. Adding to errored instructions.'
-                    )
-                    continue
-                common_objs.disassembled_firmware[ins_address]['is_data'] = True
+                ins_address = self.handle_data_byte(ins_address)
                 continue
                 
             # If it's a BL to ARM_SWITCH8:
             if insn.id == ARM_INS_BL:
                 target_address_int = insn.operands[0].value.imm
                 if target_address_int == self.arm_switch8:
-                    # Skip next few instructions.
-                    lr_value = ins_address+4
-                    switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
-                    end_index = int(switch_table_len_byte, 16)
-                    post_skip_instruction_address = lr_value + end_index + 2
-                    if post_skip_instruction_address%2 == 1: 
-                        post_skip_instruction_address += 1
-                    logging.debug(
-                        'Call to ARM_Switch8 at '
-                        + hex(ins_address)
-                        + '. Skipping next few instructions to '
-                        + hex(post_skip_instruction_address)
-                    )
-                    switch8_address = lr_value
-                    original_bytes = None
-                    while switch8_address < post_skip_instruction_address:
-                        if common_objs.disassembled_firmware[switch8_address]['insn'] != None:
-                            original_bytes = \
-                                common_objs.disassembled_firmware[switch8_address]['insn'].bytes
-                        else:
-                            original_bytes = b''
-                        common_objs.disassembled_firmware[switch8_address]['is_data'] = True
-                        common_objs.disassembled_firmware[switch8_address]['insn'] = None
-                        switch8_address += 2
-                        
-                    if len(original_bytes) == 4:
-                        new_bytes = utils.get_firmware_bytes(switch8_address, 2)
-                        new_bytes = bytes.fromhex(new_bytes)
-                        new_insns = md.disasm(
-                            new_bytes,
-                            switch8_address
-                        )
-                        for new_insn in new_insns:
-                            logging.debug(
-                                'Re-processing instruction at '
-                                + hex(new_insn.address)
-                            )
-                            common_objs.disassembled_firmware[new_insn.address] = {
-                                'insn': new_insn,
-                                'is_data': False
-                            }
-                        
-                    # 2 will be added in the loop.
-                    ins_address = post_skip_instruction_address - 2
+                    ins_address = self.handle_data_switch8_table(ins_address)
+                    continue
+                if target_address_int in self.gnu_thumb:
+                    ins_address = self.handle_data_gnu_switch_table(ins_address)
                     continue
             
             # Table branch indices.
             if insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
-                if ins_address not in common_objs.table_branches:
-                    common_objs.table_branches[ins_address] = {}
-                index_register = insn.operands[0].value.mem.index
-                common_objs.table_branches[ins_address]['comparison_register'] = \
-                    index_register
-                    
-                pc_address = ins_address + 4
-                address = ins_address
-                comparison_address = address
-                for i in range(5):
-                    address -= 2
-                    if common_objs.disassembled_firmware[address]['is_data'] == True:
-                        continue
-                    if common_objs.disassembled_firmware[address]['insn'] == None:
-                        continue
-                    prev_insn = common_objs.disassembled_firmware[address]['insn']
-                    if prev_insn.id != ARM_INS_CMP:
-                        continue
-                    if prev_insn.operands[0].value.reg != index_register:
-                        continue
-                    comp_value = prev_insn.operands[1].value.imm
-                    comparison_address = address
-                    break
-                    
-                cbranch = comparison_address
-                cbranch_condition = None
-                while cbranch < ins_address:
-                    cbranch += 2
-                    if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
-                        continue
-                    if common_objs.disassembled_firmware[cbranch]['insn'] == None:
-                        continue
-                    branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
-                    if branch_insn.id != ARM_INS_B:
-                        continue
-                    cbranch_condition = branch_insn.cc
-                        
-                common_objs.table_branches[ins_address]['comparison_value'] = \
-                    comp_value
-                common_objs.table_branches[ins_address]['comparison_address'] = \
-                    comparison_address
-                common_objs.table_branches[ins_address]['branch_address'] = \
-                    cbranch
-                common_objs.table_branches[ins_address]['branch_condition'] = \
-                    cbranch_condition
-                    
-                if cbranch_condition == ARM_CC_HS:
-                    comp_value -= 1
-                    
-                num_entries = (comp_value + 1)
-                if insn.id == ARM_INS_TBB:
-                    mul_factor = 1
-                if insn.id == ARM_INS_TBH:
-                    mul_factor = 2
-                size_table = num_entries * mul_factor
-                common_objs.table_branches[ins_address]['size_table'] = size_table
-                
-                table_branch_max = pc_address + size_table
-                if insn.id == ARM_INS_TBB:
-                    if (table_branch_max%2 == 1):
-                        table_byte = utils.get_firmware_bytes(table_branch_max, 1)
-                        if table_byte == '00':
-                            table_branch_max += 1
-                        else:
-                            logging.error('Unhandled TBB')
-                            table_branch_max += 1
-                
-                common_objs.table_branches[ins_address]['table_branch_max'] = \
-                    table_branch_max
-                    
-                logging.debug(
-                    'Skip TBB/TBH at '
-                    + hex(ins_address)
-                    + ' to '
-                    + hex(table_branch_max)
-                )
-                    
-                # Get all possible addresses.
-                table_branch_addresses = []
-                for i in range(comp_value+1):
-                    index_address = pc_address + (mul_factor*i)
-                    value = utils.get_firmware_bytes(
-                        index_address, 
-                        num_bytes=mul_factor
-                    )
-                    value = int(value, 16)
-                    branch_address = pc_address + (2*value)
-                    table_branch_addresses.append(branch_address)
-                common_objs.table_branches[ins_address]['table_branch_addresses'] = \
-                    table_branch_addresses
-                
-                original_bytes = None
-                while pc_address < table_branch_max:
-                    logging.debug(
-                        'Marking '
-                        + hex(pc_address)
-                        + ' as branch index table.'
-                    )
-                    # Get the original bytes, as we may need to re-disassemble.
-                    if common_objs.disassembled_firmware[pc_address]['insn'] != None:
-                        original_bytes = \
-                            common_objs.disassembled_firmware[pc_address]['insn'].bytes
-                    else:
-                        original_bytes = b''
-                    common_objs.disassembled_firmware[pc_address]['is_data'] = True
-                    common_objs.disassembled_firmware[pc_address]['table_index'] = True
-                    common_objs.disassembled_firmware[pc_address]['insn'] = None
-                    pc_address += 2
-                    
-                if len(original_bytes) == 4:
-                    new_bytes = utils.get_firmware_bytes(pc_address, 2)
-                    new_bytes = bytes.fromhex(new_bytes)
-                    new_insns = md.disasm(
-                        new_bytes,
-                        pc_address
-                    )
-                    for new_insn in new_insns:
-                        logging.debug(
-                            'Re-processing instruction at '
-                            + hex(new_insn.address)
-                        )
-                        common_objs.disassembled_firmware[new_insn.address] = {
-                            'insn': new_insn,
-                            'is_data': False
-                        }
+                ins_address = self.handle_data_table_branches(ins_address)
                 continue
                 
- 
             # If the instruction is not a valid LDR instruction, then don't bother.
-            if ((self.check_valid_pc_ldr(ins_address) != True) and (insn.id != ARM_INS_ADR)):
-                continue
-            curr_pc_value = self.get_mem_access_pc_value(ins_address)
-            operands = insn.operands
-            
-            # If ADR is loading to registers other than R0-R2,
-            #  then don't use it for inline data identification?
-            # Hack to reduce FPs.
-            if (insn.id == ARM_INS_ADR):
-                if operands[0].value.reg not in [ARM_REG_R0, ARM_REG_R1, ARM_REG_R2]:
-                    continue
-            
-            # Target address is PC + offset.
-            ldr_target = curr_pc_value + operands[1].mem.disp
-            if insn.id == ARM_INS_ADR:
-                ldr_target = curr_pc_value + operands[1].value.imm
-            if ldr_target not in common_objs.disassembled_firmware:
-                if ins_address not in common_objs.errored_instructions:
-                    common_objs.errored_instructions.append(ins_address)
-                    logging.trace(
-                        'LDR/ADR target ('
-                        + hex(ldr_target)
-                        + ') is not present is disassembled firmware '
-                        + 'for call at '
-                        + hex(ins_address)
-                        + '. Adding to errored instructions.'
-                    )
-                continue
-     
-            # If we have already marked the data at the target address,
-            #  then we needn't process it again.
-            if common_objs.disassembled_firmware[ldr_target]['is_data'] == True:
-                continue
-            
-            # Get data bytes at target address.
-            data_bytes = self.get_ldr_target_data_bytes(ldr_target)
-            if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
-                if ins_address not in common_objs.errored_instructions:
-                    common_objs.errored_instructions.append(ins_address)
-                    logging.trace(
-                        'Unable to get data bytes for load instruction at '
-                        + hex(ins_address)
-                        + '. Adding to errored instructions.'
-                    )
-                continue
-            
-            logging.debug(
-                'Marking '
-                + hex(ldr_target)
-                + ' as data called from '
-                + hex(ins_address)
-            )
-                    
-            # Now that we know the target address contains data, 
-            #  not instructions, we set is_data to True, 
-            #  and nullify instruction.
-            common_objs.disassembled_firmware[ldr_target]['is_data'] = True
-            if (ldr_target+2) in common_objs.disassembled_firmware:
-                common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
-            common_objs.disassembled_firmware[ldr_target]['insn'] = None  
-            
-            if ((insn.id == ARM_INS_LDR) or (insn.id == ARM_INS_ADR)):
-                # If we don't have a 4-byte word, then we need to get remaining
-                #  bytes from next "instruction".
-                if len(data_bytes) < 4:
-                    data_bytes = self.get_data_from_next_instruction(
-                        ins_address,
-                        ldr_target,
-                        data_bytes
-                    )
-                    if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
-                        if ins_address not in common_objs.errored_instructions:
-                            common_objs.errored_instructions.append(ins_address)
-                            logging.trace(
-                                'Unable to load data bytes for LDR call at '
-                                + hex(ins_address)
-                                + '. Adding to errored instructions.'
-                            )
-                        continue
-                ordered_bytes = struct.unpack('<I', data_bytes)[0]
-                common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
-            elif insn.id in [ARM_INS_LDRH, ARM_INS_LDRSH]:
-                if len(data_bytes) == 2:
-                    ordered_bytes = struct.unpack('<H', data_bytes)[0]
-                else:
-                    logging.error('LDRH target does not have exactly two bytes.')
-                    data_bytes = data_bytes[0:2]
-                    ordered_bytes = struct.unpack('<H', data_bytes)[0]
-                common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
-            else:
+            if ((self.check_valid_pc_ldr(ins_address) == True) or (insn.id == ARM_INS_ADR)):
+                ins_address = self.handle_data_ldr_adr(ins_address)
                 continue
 
+    def handle_data_byte(self, ins_address):
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
+        if ('byte' in insn.mnemonic):
+            common_objs.errored_instructions.append(ins_address)
+            logging.trace(
+                '"byte" in mnemonic at '
+                + hex(ins_address)
+                + '. Adding to errored instructions.'
+            )
+            return ins_address
+        common_objs.disassembled_firmware[ins_address]['is_data'] = True
+        return ins_address
+        
+    def handle_data_switch8_table(self, ins_address):
+        # Skip next few instructions.
+        lr_value = ins_address+4
+        switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
+        end_index = int(switch_table_len_byte, 16)
+        post_skip_instruction_address = lr_value + end_index + 2
+        if post_skip_instruction_address%2 == 1: 
+            post_skip_instruction_address += 1
+        logging.debug(
+            'Call to ARM_Switch8 at '
+            + hex(ins_address)
+            + '. Skipping next few instructions to '
+            + hex(post_skip_instruction_address)
+        )
+        switch8_address = lr_value
+        original_bytes = None
+        while switch8_address < post_skip_instruction_address:
+            if common_objs.disassembled_firmware[switch8_address]['insn'] != None:
+                original_bytes = \
+                    common_objs.disassembled_firmware[switch8_address]['insn'].bytes
+            else:
+                original_bytes = b''
+            common_objs.disassembled_firmware[switch8_address]['is_data'] = True
+            common_objs.disassembled_firmware[switch8_address]['insn'] = None
+            switch8_address += 2
+            
+        if len(original_bytes) == 4:
+            new_bytes = utils.get_firmware_bytes(switch8_address, 2)
+            new_bytes = bytes.fromhex(new_bytes)
+            new_insns = md.disasm(
+                new_bytes,
+                switch8_address
+            )
+            for new_insn in new_insns:
+                logging.debug(
+                    'Re-processing instruction at '
+                    + hex(new_insn.address)
+                )
+                common_objs.disassembled_firmware[new_insn.address] = {
+                    'insn': new_insn,
+                    'is_data': False
+                }
+            
+        # 2 will be added in the loop.
+        ins_address = post_skip_instruction_address - 2
+        return ins_address
+                
+    def handle_data_gnu_switch_table(self, ins_address):
+        if ins_address not in common_objs.replace_functions:
+            common_objs.replace_functions[ins_address] = {
+                'type': consts.FN_GNUTHUMBCALL
+            }
+        else:
+            return ins_address
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
+        pc_address = ins_address + 4
+        address = ins_address
+        comparison_address = address
+        for i in range(5):
+            address -= 2
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[address]['insn'] == None:
+                continue
+            prev_insn = common_objs.disassembled_firmware[address]['insn']
+            if prev_insn.id != ARM_INS_CMP:
+                continue
+            #if prev_insn.operands[0].value.reg != ARM_REG_R0:
+            #    continue
+            comp_value = prev_insn.operands[1].value.imm
+            comparison_address = address
+            break
+            
+        cbranch = comparison_address
+        cbranch_condition = None
+        while cbranch < ins_address:
+            cbranch += 2
+            if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[cbranch]['insn'] == None:
+                continue
+            branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
+            if branch_insn.id != ARM_INS_B:
+                continue
+            cbranch_condition = branch_insn.cc
+        
+        common_objs.replace_functions[ins_address]['comparison_value'] = \
+            comp_value
+        common_objs.replace_functions[ins_address]['comparison_address'] = \
+            comparison_address
+        common_objs.replace_functions[ins_address]['branch_address'] = \
+            cbranch
+        common_objs.replace_functions[ins_address]['branch_condition'] = \
+            cbranch_condition
+            
+        if cbranch_condition == ARM_CC_HS:
+            comp_value -= 1
+            
+        size_table = (comp_value + 1)
+        common_objs.replace_functions[ins_address]['size_table'] = size_table
+        
+        table_branch_max = pc_address + size_table
+        if (table_branch_max%2 == 1):
+            table_byte = utils.get_firmware_bytes(table_branch_max, 1)
+            if table_byte == '00':
+                table_branch_max += 1
+            else:
+                logging.error('Unhandled GNU Thumb')
+                table_branch_max += 1
+                
+        common_objs.replace_functions[ins_address]['table_branch_max'] = \
+            table_branch_max
+            
+        logging.debug(
+            'Skip GNU switch table  at '
+            + hex(ins_address)
+            + ' to '
+            + hex(table_branch_max)
+        )
+            
+        # Get all possible addresses.
+        table_branch_addresses = []
+        for i in range(comp_value+1):
+            index_address = pc_address + i
+            value = utils.get_firmware_bytes(
+                index_address, 
+                1
+            )
+            value = int(value, 16)
+            branch_address = pc_address + (2*value)
+            table_branch_addresses.append(branch_address)
+        
+        common_objs.replace_functions[ins_address]['table_branch_addresses'] = \
+            table_branch_addresses
+            
+        original_bytes = None
+        while pc_address < table_branch_max:
+            logging.debug(
+                'Marking '
+                + hex(pc_address)
+                + ' as GNU switch index table.'
+            )
+            # Get the original bytes, as we may need to re-disassemble.
+            if common_objs.disassembled_firmware[pc_address]['insn'] != None:
+                original_bytes = \
+                    common_objs.disassembled_firmware[pc_address]['insn'].bytes
+            else:
+                original_bytes = b''
+            common_objs.disassembled_firmware[pc_address]['is_data'] = True
+            common_objs.disassembled_firmware[pc_address]['insn'] = None
+            pc_address += 2
+            
+        if len(original_bytes) == 4:
+            new_bytes = utils.get_firmware_bytes(pc_address, 2)
+            new_bytes = bytes.fromhex(new_bytes)
+            new_insns = md.disasm(
+                new_bytes,
+                pc_address
+            )
+            for new_insn in new_insns:
+                logging.debug(
+                    'Re-processing instruction at '
+                    + hex(new_insn.address)
+                )
+                common_objs.disassembled_firmware[new_insn.address] = {
+                    'insn': new_insn,
+                    'is_data': False
+                }
+        return ins_address
+        
+    def handle_data_table_branches(self, ins_address):
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
+        if ins_address not in common_objs.table_branches:
+            common_objs.table_branches[ins_address] = {}
+        index_register = insn.operands[0].value.mem.index
+        common_objs.table_branches[ins_address]['comparison_register'] = \
+            index_register
+            
+        pc_address = ins_address + 4
+        address = ins_address
+        comparison_address = address
+        for i in range(5):
+            address -= 2
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[address]['insn'] == None:
+                continue
+            prev_insn = common_objs.disassembled_firmware[address]['insn']
+            if prev_insn.id != ARM_INS_CMP:
+                continue
+            if prev_insn.operands[0].value.reg != index_register:
+                continue
+            comp_value = prev_insn.operands[1].value.imm
+            comparison_address = address
+            break
+            
+        cbranch = comparison_address
+        cbranch_condition = None
+        while cbranch < ins_address:
+            cbranch += 2
+            if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[cbranch]['insn'] == None:
+                continue
+            branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
+            if branch_insn.id != ARM_INS_B:
+                continue
+            cbranch_condition = branch_insn.cc
+                
+        common_objs.table_branches[ins_address]['comparison_value'] = \
+            comp_value
+        common_objs.table_branches[ins_address]['comparison_address'] = \
+            comparison_address
+        common_objs.table_branches[ins_address]['branch_address'] = \
+            cbranch
+        common_objs.table_branches[ins_address]['branch_condition'] = \
+            cbranch_condition
+            
+        if cbranch_condition == ARM_CC_HS:
+            comp_value -= 1
+            
+        num_entries = (comp_value + 1)
+        if insn.id == ARM_INS_TBB:
+            mul_factor = 1
+        if insn.id == ARM_INS_TBH:
+            mul_factor = 2
+        size_table = num_entries * mul_factor
+        common_objs.table_branches[ins_address]['size_table'] = size_table
+        
+        table_branch_max = pc_address + size_table
+        if insn.id == ARM_INS_TBB:
+            if (table_branch_max%2 == 1):
+                table_byte = utils.get_firmware_bytes(table_branch_max, 1)
+                if table_byte == '00':
+                    table_branch_max += 1
+                else:
+                    logging.error('Unhandled TBB')
+                    table_branch_max += 1
+        
+        common_objs.table_branches[ins_address]['table_branch_max'] = \
+            table_branch_max
+            
+        logging.debug(
+            'Skip TBB/TBH at '
+            + hex(ins_address)
+            + ' to '
+            + hex(table_branch_max)
+        )
+            
+        # Get all possible addresses.
+        table_branch_addresses = []
+        for i in range(comp_value+1):
+            index_address = pc_address + (mul_factor*i)
+            value = utils.get_firmware_bytes(
+                index_address, 
+                num_bytes=mul_factor
+            )
+            value = int(value, 16)
+            branch_address = pc_address + (2*value)
+            table_branch_addresses.append(branch_address)
+        common_objs.table_branches[ins_address]['table_branch_addresses'] = \
+            table_branch_addresses
+        
+        original_bytes = None
+        while pc_address < table_branch_max:
+            logging.debug(
+                'Marking '
+                + hex(pc_address)
+                + ' as branch index table.'
+            )
+            # Get the original bytes, as we may need to re-disassemble.
+            if common_objs.disassembled_firmware[pc_address]['insn'] != None:
+                original_bytes = \
+                    common_objs.disassembled_firmware[pc_address]['insn'].bytes
+            else:
+                original_bytes = b''
+            common_objs.disassembled_firmware[pc_address]['is_data'] = True
+            common_objs.disassembled_firmware[pc_address]['table_index'] = True
+            common_objs.disassembled_firmware[pc_address]['insn'] = None
+            pc_address += 2
+            
+        if len(original_bytes) == 4:
+            new_bytes = utils.get_firmware_bytes(pc_address, 2)
+            new_bytes = bytes.fromhex(new_bytes)
+            new_insns = md.disasm(
+                new_bytes,
+                pc_address
+            )
+            for new_insn in new_insns:
+                logging.debug(
+                    'Re-processing instruction at '
+                    + hex(new_insn.address)
+                )
+                common_objs.disassembled_firmware[new_insn.address] = {
+                    'insn': new_insn,
+                    'is_data': False
+                }
+        return ins_address
+    
+    def handle_data_ldr_adr(self, ins_address):
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
+        curr_pc_value = self.get_mem_access_pc_value(ins_address)
+        operands = insn.operands
+        
+        # If ADR is loading to registers other than R0-R2,
+        #  then don't use it for inline data identification?
+        # Hack to reduce FPs.
+        if (insn.id == ARM_INS_ADR):
+            if operands[0].value.reg not in [ARM_REG_R0, ARM_REG_R1, ARM_REG_R2]:
+                return ins_address
+        
+        # Target address is PC + offset.
+        ldr_target = curr_pc_value + operands[1].mem.disp
+        if insn.id == ARM_INS_ADR:
+            ldr_target = curr_pc_value + operands[1].value.imm
+        if ldr_target not in common_objs.disassembled_firmware:
+            if ins_address not in common_objs.errored_instructions:
+                common_objs.errored_instructions.append(ins_address)
+                logging.trace(
+                    'LDR/ADR target ('
+                    + hex(ldr_target)
+                    + ') is not present is disassembled firmware '
+                    + 'for call at '
+                    + hex(ins_address)
+                    + '. Adding to errored instructions.'
+                )
+            return ins_address
+ 
+        # If we have already marked the data at the target address,
+        #  then we needn't process it again.
+        if common_objs.disassembled_firmware[ldr_target]['is_data'] == True:
+            return ins_address
+        
+        # Get data bytes at target address.
+        data_bytes = self.get_ldr_target_data_bytes(ldr_target)
+        if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
+            if ins_address not in common_objs.errored_instructions:
+                common_objs.errored_instructions.append(ins_address)
+                logging.trace(
+                    'Unable to get data bytes for load instruction at '
+                    + hex(ins_address)
+                    + '. Adding to errored instructions.'
+                )
+            return ins_address
+        
+        logging.debug(
+            'Marking '
+            + hex(ldr_target)
+            + ' as data called from '
+            + hex(ins_address)
+        )
+                
+        # Now that we know the target address contains data, 
+        #  not instructions, we set is_data to True, 
+        #  and nullify instruction.
+        common_objs.disassembled_firmware[ldr_target]['is_data'] = True
+        if (ldr_target+2) in common_objs.disassembled_firmware:
+            common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
+        common_objs.disassembled_firmware[ldr_target]['insn'] = None  
+        
+        if ((insn.id == ARM_INS_LDR) or (insn.id == ARM_INS_ADR)):
+            # If we don't have a 4-byte word, then we need to get remaining
+            #  bytes from next "instruction".
+            if len(data_bytes) < 4:
+                data_bytes = self.get_data_from_next_instruction(
+                    ins_address,
+                    ldr_target,
+                    data_bytes
+                )
+                if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
+                    if ins_address not in common_objs.errored_instructions:
+                        common_objs.errored_instructions.append(ins_address)
+                        logging.trace(
+                            'Unable to load data bytes for LDR call at '
+                            + hex(ins_address)
+                            + '. Adding to errored instructions.'
+                        )
+                    return ins_address
+            ordered_bytes = struct.unpack('<I', data_bytes)[0]
+            common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
+        elif insn.id in [ARM_INS_LDRH, ARM_INS_LDRSH]:
+            if len(data_bytes) == 2:
+                ordered_bytes = struct.unpack('<H', data_bytes)[0]
+            else:
+                logging.error('LDRH target does not have exactly two bytes.')
+                data_bytes = data_bytes[0:2]
+                ordered_bytes = struct.unpack('<H', data_bytes)[0]
+            common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
+        else:
+            return ins_address
+        return ins_address
+                
     def handle_potential_byte_misinterpretation_errors(self):
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
@@ -695,6 +839,11 @@ class FirmwareDisassembler:
                 return True
         return False
     
+    def identify_switch_functions(self):
+        """ Identify __ARM_common_switch8 and the __gnu_thumb1 variants."""
+        self.identify_arm_switch8()
+        self.identify_gnu_switch()
+        
     def identify_arm_switch8(self):
         logging.debug('Checking for __ARM_common_switch8')
         arm_switch8 = None
@@ -740,8 +889,60 @@ class FirmwareDisassembler:
         logging.info('ARM switch8 identified at ' + hex(arm_switch8))
         self.arm_switch8 = arm_switch8
         common_objs.replace_functions[arm_switch8] = {
-            'type': consts.SWITCH8
+            'type': consts.FN_SWITCH8
         }
+    
+    def identify_gnu_switch(self):
+        logging.debug('Checking for __gnu_thumb1 variants')
+        gnu_thumb = None
+        self.gnu_thumb = []
+        for ins_address in common_objs.disassembled_firmware:
+            if ins_address in common_objs.errored_instructions:
+                continue
+            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+                continue
+                
+            insn = common_objs.disassembled_firmware[ins_address]['insn']
+            if insn == None: continue
+            
+            is_potential_gnu_thumb = False
+            if insn.id == ARM_INS_PUSH:
+                operands = insn.operands
+                if len(operands) == 2:
+                    if ((operands[0].value.reg == ARM_REG_R0) 
+                            and (operands[1].value.reg == ARM_REG_R1)):
+                        is_potential_gnu_thumb = True
+                elif len(operands) == 2:
+                    if (operands[1].value.reg == ARM_REG_R1):
+                        is_potential_gnu_thumb = True
+            if is_potential_gnu_thumb != True:
+                continue
+            if ((ins_address+2) not in common_objs.disassembled_firmware):
+                is_potential_gnu_thumb = False
+                continue
+            next_insn = common_objs.disassembled_firmware[ins_address+2]['insn']
+            if next_insn == None:
+                is_potential_gnu_thumb = False
+                continue
+            if next_insn.id not in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
+                is_potential_gnu_thumb = False
+                continue
+            next_operands = next_insn.operands
+            if next_operands[0].value.reg != ARM_REG_R1:
+                is_potential_gnu_thumb = False
+                continue
+            if next_operands[1].value.reg != ARM_REG_LR:
+                is_potential_gnu_thumb = False
+                continue
+            if is_potential_gnu_thumb == True:
+                gnu_thumb = ins_address
+                logging.info('GNU switch function identified at ' + hex(gnu_thumb))
+                self.gnu_thumb.append(gnu_thumb)
+                common_objs.replace_functions[gnu_thumb] = {
+                    'type': consts.FN_GNUTHUMB
+                }
+                # There may be others (there are 5 variants in total)
+                # So don't end here.
         
     def identify_data_segment_via_reset_handler(self):
         reset_handler_address = common_objs.application_vector_table['reset']

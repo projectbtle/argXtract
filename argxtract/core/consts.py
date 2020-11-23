@@ -9,9 +9,11 @@ ARMv6M = 'armv6m'
 ARMv7M = 'armv7m'
 
 # Functions.
-MEMSET = 'memset'
-UDIV = 'udiv'
-SWITCH8 = 'switch8'
+FN_MEMSET = 'memset'
+FN_UDIV = 'udiv'
+FN_SWITCH8 = 'switch8'
+FN_GNUTHUMB = 'gnu-thumb'
+FN_GNUTHUMBCALL = 'gnu-thumb-call'
 
 # Address types.
 ADDRESS_DATA = 'data'

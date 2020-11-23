@@ -60,6 +60,11 @@ class RegisterEvaluator:
             int(common_objs.application_vector_table['initial_sp'])
 
         for start_point in start_points:
+            if self.time_check() == True:
+                logging.debug('Timeout')
+                break
+                
+            logging.debug('Start point: ' + hex(start_point))
             # Initialise registers at the starting point.
             initialised_regs = {}
             for reg in consts.REGISTERS:
@@ -392,14 +397,14 @@ class RegisterEvaluator:
             replace_function = \
                 common_objs.replace_functions[branch_target]
             func_type = replace_function['type']
-            if func_type == consts.MEMSET:
+            if func_type == consts.FN_MEMSET:
                 memory_map = self.process_memset(
                     memory_map,
                     register_object,
                     replace_function,
                     ins_address
                 )
-            elif func_type == consts.UDIV:
+            elif func_type == consts.FN_UDIV:
                 register_object = self.process_software_udiv(
                     register_object
                 )
