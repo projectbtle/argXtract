@@ -21,6 +21,7 @@ arm_arch = consts.ARMv6M
 app_code_base = 0x00000000
 disassembly_start_address = 0x00000000
 code_start_address = 0x00000000
+code_end_address = 0x00000000
 flash_length = 0x00000000
 ram_base = 0x00000000
 ram_length = 0x00000000

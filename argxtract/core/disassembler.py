@@ -61,14 +61,14 @@ class FirmwareDisassembler:
         possible_code_bases = []
         for interrupt_handler in interrupt_handlers:
             for self_targeting_branch in self_targeting_branches:
-                logging.debug(
+                logging.trace(
                     'Testing interrupt handler ' 
                     + interrupt_handler
                     + ' against self targeting branch at '
                     + self_targeting_branch
                 )
                 if (self_targeting_branch.replace('0x', ''))[-3:] in interrupt_handler:
-                    logging.debug('Match found!')
+                    logging.trace('Match found!')
                     app_code_base = \
                         int(interrupt_handler, 16) - int(self_targeting_branch, 16)
                     if app_code_base < 0: continue
@@ -219,6 +219,12 @@ class FirmwareDisassembler:
     def identify_inline_data(self):   
         logging.info('Identifying inline data.')
         
+        # First mark out current code end address.
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        common_objs.code_end_address = all_addresses[-1]
+        all_addresses = None
+
         # Add dummy keys, to handle Capstone issues.
         disassembled_firmware_with_dummy_keys = self.add_dummy_keys(
             common_objs.disassembled_firmware
@@ -239,22 +245,27 @@ class FirmwareDisassembler:
         # Check again for inline data, but this time using inline addresses.
         self.check_inline_address_instructions()
         
-        # Trace
+        # Trace message.
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
         trace_msg = 'Final instructions: \n'
         for address in common_objs.disassembled_firmware:
             if common_objs.disassembled_firmware[address]['is_data'] == True:
-                if 'data' not in common_objs.disassembled_firmware[address]:
-                    continue
-                data = common_objs.disassembled_firmware[address]['data']
+                next_address = utils.get_next_address(all_addresses, address)
+                if next_address == None: next_address = address + 2
+                data = utils.get_firmware_bytes(
+                    address,
+                    next_address-address
+                )
                 trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
-                                            hex(data),
+                                            data,
                                             'data',
                                             '')
             else:
                 insn = common_objs.disassembled_firmware[address]['insn']
                 bytes = insn.bytes
                 bytes = ''.join('{:02x}'.format(x) for x in bytes)
-                trace_msg += '\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
+                trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(address,
                                             bytes,
                                             insn.mnemonic,
                                             insn.op_str)
@@ -345,13 +356,19 @@ class FirmwareDisassembler:
         
         # Read in data from the Reset Handler.
         self.identify_data_segment_via_reset_handler()
-
+        # Check for additional data segments using null bytes.
+        self.estimate_end_of_app_code()
+        logging.debug(
+            'Code end address is '
+            + hex(common_objs.code_end_address)
+        )
+        
         self.handle_potential_byte_misinterpretation_errors()
         
         self.identify_switch_functions()
         
         ins_address = common_objs.code_start_address - 2
-        while ins_address < max_address:
+        while ins_address < common_objs.code_end_address:
             ins_address = utils.get_next_address(
                 all_addresses,
                 ins_address
@@ -488,7 +505,7 @@ class FirmwareDisassembler:
             if common_objs.disassembled_firmware[cbranch]['insn'] == None:
                 continue
             branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
-            if branch_insn.id != ARM_INS_B:
+            if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
                 continue
             cbranch_condition = branch_insn.cc
         
@@ -614,7 +631,7 @@ class FirmwareDisassembler:
             if common_objs.disassembled_firmware[cbranch]['insn'] == None:
                 continue
             branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
-            if branch_insn.id != ARM_INS_B:
+            if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
                 continue
             cbranch_condition = branch_insn.cc
                 
@@ -626,7 +643,7 @@ class FirmwareDisassembler:
             cbranch
         common_objs.table_branches[ins_address]['branch_condition'] = \
             cbranch_condition
-            
+        
         if cbranch_condition == ARM_CC_HS:
             comp_value -= 1
             
@@ -645,7 +662,7 @@ class FirmwareDisassembler:
                 if table_byte == '00':
                     table_branch_max += 1
                 else:
-                    logging.error('Unhandled TBB')
+                    logging.error('Unhandled TBB at ' + hex(ins_address))
                     table_branch_max += 1
         
         common_objs.table_branches[ins_address]['table_branch_max'] = \
@@ -1043,16 +1060,16 @@ class FirmwareDisassembler:
                         + hex(ldr_value)
                     )
         if data_start_firmware_address == '':
-            self.estimate_end_of_app_code()
             return
-        if data_start_real_address == '':   
-            self.estimate_end_of_app_code()
+        if data_start_real_address == '':
             return
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         last_address = all_addresses[-1]
+        all_addresses = None
         if data_start_firmware_address >= last_address:
             return
+
         data_region = {}
         fw_address = data_start_firmware_address
         real_address = data_start_real_address
@@ -1072,6 +1089,13 @@ class FirmwareDisassembler:
             fw_address += 2
         common_objs.data_region = data_region
         logging.debug(common_objs.data_region)
+        
+        # Mark code end address.
+        potential_code_end = data_start_firmware_address - 2
+        if ((common_objs.disassembled_firmware[potential_code_end]['insn'] == None)
+                and (common_objs.disassembled_firmware[potential_code_end]['is_data'] == False)):
+            potential_code_end -= 2
+        common_objs.code_end_address = potential_code_end
     
     def estimate_end_of_app_code(self):
         start_of_code = common_objs.code_start_address-common_objs.app_code_base
@@ -1086,6 +1110,9 @@ class FirmwareDisassembler:
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         max_address = all_addresses[-1]
+        if ((common_objs.code_end_address > 0) 
+                and (common_objs.code_end_address < max_address)):
+            max_address = common_objs.code_end_address
         address = address_data_start
         logging.debug(
             'Marking addresses from '
@@ -1098,7 +1125,17 @@ class FirmwareDisassembler:
                 common_objs.disassembled_firmware[address]['insn']
             common_objs.disassembled_firmware[address]['insn'] = None
             address += 2
-        
+            
+        # Mark code end address
+        potential_code_end = address_data_start - 2
+        if potential_code_end not in common_objs.disassembled_firmware:
+            potential_code_end -= 2
+        if ((common_objs.disassembled_firmware[potential_code_end]['insn'] == None)
+                and (common_objs.disassembled_firmware[potential_code_end]['is_data'] == False)):
+            potential_code_end -= 2
+        if potential_code_end < common_objs.code_end_address:
+            common_objs.code_end_address = potential_code_end
+
     def get_data_from_next_instruction(self, ins_address, ldr_target, data_bytes):
         if (ldr_target+2) not in common_objs.disassembled_firmware:
             logging.error(
@@ -1217,7 +1254,7 @@ class FirmwareDisassembler:
         min_address = all_addresses[0]
         max_address = all_addresses[-1]
         ins_address = common_objs.code_start_address - 2
-        while ins_address < max_address:
+        while ins_address < common_objs.code_end_address:
             ins_address = utils.get_next_address(
                 all_addresses,
                 ins_address
@@ -1242,7 +1279,7 @@ class FirmwareDisassembler:
             # Target address is PC + offset.
             operands = insn.operands
             ldr_target = curr_pc_value + operands[1].mem.disp
-            ordered_bytes = common_objs.disassembled_firmware[ldr_target]['data']
+            ordered_bytes = int(utils.get_firmware_bytes(ldr_target, 4), 16)
 
             # If it's an LDR instruction, then the bytes themselves may 
             #  represent an address within the instructions.

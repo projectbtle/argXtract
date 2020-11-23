@@ -220,6 +220,7 @@ class FirmwareAnalyser:
         common_objs.app_code_base = 0x00000000
         common_objs.disassembly_start_address = 0x00000000
         common_objs.code_start_address = 0x00000000
+        common_objs.code_end_address = 0x00000000
         common_objs.flash_length = 0x00000000
         common_objs.ram_base = 0x00000000
         common_objs.ram_length = 0x00000000
