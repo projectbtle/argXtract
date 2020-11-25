@@ -217,6 +217,10 @@ class CoiProcessor:
             # If it's self-references, ignore.
             if function_block == func_block:
                 continue
+            # If it's the Reset Handler, ignore.
+            if function_block == common_objs.application_vector_table['reset']:
+                output_list.append(chain)
+                continue
                 
             if function_block not in fblock_list:
                 fblock_list.append(function_block)

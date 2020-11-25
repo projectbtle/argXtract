@@ -173,17 +173,18 @@ class RegisterEvaluator:
 
         # Start from the starting point within assembly,
         #  and follow the instructions along the chain.
-        for ins_address in common_objs.disassembled_firmware:
-            # We don't want to process any instruction at an address
-            #  lower than start point.
-            if ins_address < start_point:
-                continue
-                
+        ins_address = start_point
+        code_end = self.all_addresses[-1]
+        while ins_address <= code_end:
             if ins_address in common_objs.errored_instructions:
                 logging.trace(
                     'Errored instruction at '
                     + hex(ins_address)
                     + '. Skipping.'
+                )
+                (ins_address, register_object) = self.update_pc_register(
+                    ins_address,
+                    register_object
                 )
                 continue
                 
@@ -249,6 +250,10 @@ class RegisterEvaluator:
                 # We've done all the processing we want to, 
                 #  for the COI call instruction.
                 # So continue to next instruction.
+                (ins_address, register_object) = self.update_pc_register(
+                    ins_address,
+                    register_object
+                )
                 continue
 
             # Instructions we needn't process (NOP, etc).
@@ -259,11 +264,15 @@ class RegisterEvaluator:
                     + hex(ins_address)
                     + ' to be skipped.'
                 )
+                (ins_address, register_object) = self.update_pc_register(
+                    ins_address,
+                    register_object
+                )
                 continue
-
+            
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             opcode_id = insn.id
-            
+
             # Debug and trace messages.
             logging.debug('------------------------------------------')
             logging.trace('memory: ' + self.print_memory(memory_map))
@@ -287,6 +296,10 @@ class RegisterEvaluator:
                 if ((opcode_id == ARM_INS_BL) and (executed_branch == False)):
                     register_object[ARM_REG_R0] = '00000000'
                 if should_execute_next_instruction == True:
+                    (ins_address, register_object) = self.update_pc_register(
+                        ins_address,
+                        register_object
+                    )
                     continue
                 else:
                     return
@@ -330,7 +343,37 @@ class RegisterEvaluator:
             #  Presumably we wouldn't continue with the current trace then.
             if register_object == None:
                 return
+            (ins_address, register_object) = self.update_pc_register(
+                ins_address,
+                register_object
+            )
     
+    def update_pc_register(self, ins_address, register_object):
+        if ins_address in common_objs.errored_instructions:
+            should_update_pc_value = True
+        elif common_objs.disassembled_firmware[ins_address]['is_data']:
+            should_update_pc_value = True
+        else:
+            insn = common_objs.disassembled_firmware[ins_address]['insn']
+            if insn == None:
+                should_update_pc_value = True
+            elif len(insn.operands) == 0:
+                should_update_pc_value = True
+            else:
+                if ((insn.operands[0].type == ARM_OP_REG) 
+                        and (insn.operands[0].value.reg == ARM_REG_PC)):
+                    should_update_pc_value = False
+                else:
+                    should_update_pc_value = True
+        if should_update_pc_value == False:
+            ins_address = register_object[ARM_REG_PC]
+            return (ins_address, register_object) 
+            
+        pc_address = self.get_next_address(self.all_addresses, ins_address)
+        ins_address = pc_address
+        register_object[ARM_REG_PC] = pc_address
+        return (ins_address, register_object)
+        
     def get_branch_end_points_from_trace_obj(self, trace_obj):
         branch_or_end_points = trace_obj['branch_or_end_points']
         branch_points = list(branch_or_end_points.keys())
@@ -365,10 +408,15 @@ class RegisterEvaluator:
                 branch_register,
                 'int'
             )
+            logging.trace('Branch target is ' + hex(branch_target))
             # Do we need further processing for ARM/Thumb switch?
             if branch_target != None:
                 if branch_target % 2 == 1:
                     branch_target = branch_target - 1
+                    logging.trace(
+                        'BX switch. New branch target is ' 
+                        + hex(branch_target)
+                    )
         elif opcode_id in [ARM_INS_CBZ, ARM_INS_CBNZ]:
             branch_target = operands[1].value.imm
         
@@ -4447,7 +4495,6 @@ class RegisterEvaluator:
             length = int(length, 16)
         if length == 0:
             logging.warning('memset len specified as 0 at ' + hex(address))
-            sys.exit(0)
             return memory_map
         # We don't want to create huge memory maps,
         #  so process only if length is lower than a certain value.

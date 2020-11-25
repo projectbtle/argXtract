@@ -195,20 +195,8 @@ class FunctionEvaluator:
         return function_block_start_addresses
  
     def check_branch_tos(self, function_block_start_addresses):
-        certainties = ['high', 'med']
-        for certainty in certainties:
-            function_block_start_addresses = \
-                self.check_branch_tos_at_certainty_level(
-                    function_block_start_addresses,
-                    certainty
-                )
-        return function_block_start_addresses
-        
-    def check_branch_tos_at_certainty_level(self, function_block_start_addresses,
-                                            certainty_level):
         logging.debug(
-            'Checking for functions at certainty level ' 
-            + certainty_level
+            'Checking for high-certainty functions.'
         )
         functions = []
         for ins_address in common_objs.disassembled_firmware:
@@ -262,44 +250,24 @@ class FunctionEvaluator:
                     ARM_INS_BLX, ARM_INS_BX]:
                 continue
             
-            if certainty_level == 'high':
-                if opcode_id == ARM_INS_BL:
-                    is_candidate = True
-                else:
-                    is_candidate = self.check_fb_candidate_high_certainty(
-                            common_objs.disassembled_firmware,
-                            branch_address
-                        )
-            elif certainty_level == 'med':
-                is_candidate = self.check_fb_candidate_med_certainty(
+            if opcode_id == ARM_INS_BL:
+                is_candidate = True
+            else:
+                is_candidate = self.check_fb_candidate_high_certainty(
                         common_objs.disassembled_firmware,
                         branch_address
                     )
-                
+
             if is_candidate != True:
                 continue
             
             if branch_address not in function_block_start_addresses:
                 function_block_start_addresses.append(branch_address)
                 functions.append(hex(branch_address))
-            """# If we're at high certainty, then the function block list
-            #  would have started out empty. Just add the addresses.
-            if certainty_level == 'high':
-                if branch_address not in function_block_start_addresses:
-                    function_block_start_addresses.append(branch_address)
-            else:
-                preexists = self.check_preexisting_block(
-                    function_block_start_addresses,
-                    branch_address,
-                    boundary=10
-                )
-                if preexists == False:
-                    function_block_start_addresses.append(branch_address)"""   
+                
         functions.sort()
         logging.debug(
-            'Functions identified at certainty level '
-            + certainty_level
-            + ' '
+            'Functions identified: '
             + str(functions)
         )                
         return function_block_start_addresses
@@ -320,31 +288,7 @@ class FunctionEvaluator:
             if reg == ARM_REG_SP:
                 return True
         return False
-        
-    def check_fb_candidate_med_certainty(self, disassembled_fw, branch_address):
-        # If the target is within 3 instructions of a push/sub-sp instruction, 
-        #  take that to be true.
-        list_to_iterate = [2, 4, 6]
-        for i in list_to_iterate:
-            if (branch_address + i) not in disassembled_fw:
-                continue
-            if (branch_address + i) in common_objs.errored_instructions:
-                continue
-            if disassembled_fw[branch_address + i]['is_data'] == True:
-                continue
                 
-            if self.check_is_valid_exit(branch_address + i) == True:
-                return False    
-            if disassembled_fw[branch_address + i]['insn'].id == ARM_INS_PUSH:
-                return True
-                
-            if disassembled_fw[branch_address + i]['insn'].id == ARM_INS_SUB:
-                ops = disassembled_fw[branch_address + i]['insn'].operands
-                reg = ops[0].value.reg
-                if reg == ARM_REG_SP:
-                    return True
-        return False
-        
     def check_for_nop_or_error(self, address, opcode, operands):
         if self.check_for_nop(opcode, operands) == True:
             return True
@@ -415,9 +359,16 @@ class FunctionEvaluator:
                 # Again, within a function, there must be a way to skip over them.
                 insn = fw_bytes['insn']
                 operands = insn.operands
-                is_valid_exit = self.check_is_valid_exit(address)
+                is_valid_exit = self.check_is_valid_exit(address, start, end)
                 if is_valid_exit == True:
                     potential_end = True
+                    
+            # This is needed here because of unconditional branches.
+            if fw_bytes['is_data'] != True:
+                if ((insn.id == ARM_INS_B) and (insn.cc == ARM_CC_AL)):
+                    branch_target = operands[0].value.imm
+                    if address not in branches:
+                        branches[address] = [branch_target]
                     
             if potential_end == True:
                 skip_end = False
@@ -448,7 +399,7 @@ class FunctionEvaluator:
                 
             # Look at all the branch instructions.
             if insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
-                if insn.id == ARM_INS_B:
+                if (insn.id == ARM_INS_B):
                     branch_target = operands[0].value.imm
                 else:
                     branch_target = operands[1].value.imm
@@ -497,13 +448,15 @@ class FunctionEvaluator:
                         min_address = largest_table_address
                         if min_address > end:
                             logging.error(
-                                'Table address is greater than function end! '
+                                'Table address ('
+                                + hex(min_address)
+                                + ') is greater than function end! (GNU switch) '
                                 + hex(original_address)
                             )
                         address = common_objs.replace_functions[original_address]['table_branch_max']
                         if address%2 == 1: address-=1
                         logging.debug(
-                            'Processed table branch at '
+                            'Processed (GNU switch) table branch at '
                             + hex(original_address)
                             + '. Now skipping to ' 
                             + hex(address)
@@ -559,7 +512,7 @@ class FunctionEvaluator:
             break
         return start
     
-    def check_is_valid_exit(self, ins_address):
+    def check_is_valid_exit(self, ins_address, start, end):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         if insn.id == ARM_INS_BX:
             return True
@@ -570,6 +523,7 @@ class FunctionEvaluator:
                 return True
         if insn.id == ARM_INS_B:
             if insn.cc == ARM_CC_AL:
+                return True
                 target_address_int = insn.operands[0].value.imm
                 target_address = hex(target_address_int)
                 if target_address_int == ins_address:
