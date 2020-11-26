@@ -304,6 +304,7 @@ class CoiProcessor:
                     coi_chain,
                     coi_name
                 )
+        output_object = utils.order_dict(output_object)
         return output_object
     
     def add_chain_to_trace_object(self, output_object, coi_chain, coi_name):
@@ -331,7 +332,7 @@ class CoiProcessor:
             combined_object = working_object[ins_address]['branch_target']
             chain_elements = chain_elements[1:]
         return output_object
-    
+  
     def annotate_trace_object(self, trace_obj, level):
         output_object = trace_obj
         for key in output_object:
