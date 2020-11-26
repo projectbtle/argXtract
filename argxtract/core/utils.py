@@ -317,6 +317,6 @@ def get_previous_partial_address(address_obj, address):
     return address
     
 def order_dict(dictionary):
-        """From https://stackoverflow.com/a/47882384."""
-        return {k: order_dict(v) if isinstance(v, dict) else v
-                for k, v in sorted(dictionary.items())}
+    """From https://stackoverflow.com/a/47882384."""
+    return {k: order_dict(v) if isinstance(v, dict) else v
+            for k, v in sorted(dictionary.items())}

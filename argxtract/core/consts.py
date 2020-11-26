@@ -12,8 +12,10 @@ ARMv7M = 'armv7m'
 FN_MEMSET = 'memset'
 FN_UDIV = 'udiv'
 FN_SWITCH8 = 'switch8'
+FN_SWITCH8CALL = 'switch8-call'
 FN_GNUTHUMB = 'gnu-thumb'
 FN_GNUTHUMBCALL = 'gnu-thumb-call'
+PC_SWITCH = 'pc_switch'
 
 # Address types.
 ADDRESS_DATA = 'data'

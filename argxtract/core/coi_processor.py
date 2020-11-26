@@ -305,6 +305,13 @@ class CoiProcessor:
                     coi_name
                 )
         output_object = utils.order_dict(output_object)
+        self.annotation_id = 0
+        for key in output_object:
+            output_object[key]['branch_or_end_points'] = \
+                self.annotate_trace_object(
+                    output_object[key]['branch_or_end_points']
+                )
+        self.annotation_id = None
         return output_object
     
     def add_chain_to_trace_object(self, output_object, coi_chain, coi_name):
@@ -333,23 +340,18 @@ class CoiProcessor:
             chain_elements = chain_elements[1:]
         return output_object
   
-    def annotate_trace_object(self, trace_obj, level):
-        output_object = trace_obj
-        for key in output_object:
-            identifier = str(level) + '-' + str(self.global_annotatation_id)
-            self.global_annotatation_id += 1
-            output_object[key]['id'] = identifier
-            level += 1
-            for point in output_object[key]['branch_or_end_points']:
-                point_id = str(level) + '-' + str(self.global_annotatation_id)
-                self.global_annotatation_id += 1
-                output_object[key]['branch_or_end_points'][point]['id'] = point_id
-                output_object[key]['branch_or_end_points'][point]['branch_target'] = \
-                    self.annotate_trace_object(
-                        output_object[key]['branch_or_end_points'][point]['branch_target'],
-                        level+1
-                    )
-        return output_object
+    def annotate_trace_object(self, dictionary):
+        for k in dictionary:
+            if dictionary[k]['is_end'] == False:
+                for branch in dictionary[k]['branch_target']:
+                    dictionary[k]['branch_target'][branch]['branch_or_end_points'] = \
+                        self.annotate_trace_object(
+                            dictionary[k]['branch_target'][branch]['branch_or_end_points']
+                        )
+            else:
+                dictionary[k]['id'] = str(self.annotation_id)
+                self.annotation_id += 1
+        return dictionary
         
     """ ================== Argument processing ================== """
     def process_trace_output(self, trace_output):

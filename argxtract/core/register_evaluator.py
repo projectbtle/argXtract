@@ -33,6 +33,20 @@ class RegisterEvaluator:
         self.coi_processor = coi_processor_instance
         self.master_trace_obj = trace_obj
         
+        # Get starting point for trace from chain.
+        start_points = trace_obj.keys()
+        
+        self.expected_endpoints = []
+        for start_point in start_points:
+            endpoint_addresses = self.get_endpoint_ids(
+                trace_obj[start_point]['branch_or_end_points']
+            )
+            for endpoint_address in endpoint_addresses:
+                self.expected_endpoints.append(endpoint_address)
+        self.num_expected_endpoints = len(self.expected_endpoints)
+        self.obtained_endpoints = []
+        self.num_obtained_endpoints = 0
+        
         # Get all instruction addresses.
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
@@ -53,8 +67,7 @@ class RegisterEvaluator:
         # Start up instruction queue.
         self.instruction_queue = collections.deque()
             
-        # Get starting point for trace from chain.
-        start_points = trace_obj.keys()
+        
         # Get the stack pointer value.
         start_stack_pointer = \
             int(common_objs.application_vector_table['initial_sp'])
@@ -136,7 +149,7 @@ class RegisterEvaluator:
     # =======================================================================  
     # ------------------------- Trace Path-Related --------------------------
     
-    def trace_register_values(self, start_point, register_object,  
+    def trace_cois(self, start_point, register_object,  
                                 memory_map, condition_flags, trace_obj, 
                                 current_path, null_registers={}, gc=0):
         """"""
@@ -147,30 +160,88 @@ class RegisterEvaluator:
         if start_point < (code_start_point): 
             return None
         
-        # Get the address of the last instruction in function block,
-        #  so that we don't just go on processing the nest function block.
-        curr_function_block = utils.id_function_block_for_instruction(
-            start_point
-        )
-        end_of_function_block = utils.id_function_block_end(    
-            curr_function_block
-        )
-        
         # Get branch points/possible end points. 
         (branch_points, end_points, end_point_obj) = \
             self.get_branch_end_points_from_trace_obj(
                 trace_obj
             )
         
+        while self.num_obtained_endpoints < self.num_expected_endpoints:
+            (ins_address, trace_obj, memory_map, register_object) = \
+                self.trace_register_values(start_point, end_points,   
+                    register_object, memory_map, condition_flags, trace_obj, 
+                    branch_points, current_path, null_registers, gc)
+            if trace_obj == None: 
+                return   
+
+            self.obtained_endpoints.append(
+                trace_obj['branch_or_end_points'][ins_address]['id']
+            )
+            self.num_obtained_endpoints += 1
+            coi_name = end_point_obj[ins_address]
+            memory_map = {
+                key:memory_map[key] 
+                    for key in sorted(memory_map.keys())
+            }
+            register_object = {
+                key:register_object[key] 
+                    for key in sorted(register_object.keys())
+            }
+
+            out_obj = {
+                'memory': memory_map,
+                'registers': register_object
+            }
+            
+            logging.debug(
+                'Endpoint reached for '
+                + coi_name
+                + ' at '
+                + hex(ins_address)
+                + '!\n'
+                + 'memory: '
+                + self.print_memory(memory_map)
+                + '\nregisters: '
+                + self.print_memory(register_object)
+            )
+
+            # Process the output and get updated memory map.
+            memory_map = self.coi_processor.process_trace_output(
+                {coi_name:out_obj}
+            )
+            memory_map = {
+                key:memory_map[key] 
+                    for key in sorted(memory_map.keys())
+            }
+            end_points.remove(ins_address)
+            
+            # Output of SVC is an error code stored in register r0.
+            # Output of function call is unknown.
+            #  We assume 0, i.e., no error.
+            register_object = self.store_register_bytes(
+                register_object,
+                ARM_REG_R0,
+                '00000000'
+            )
+            # We've done all the processing we want to, 
+            #  for the COI call instruction.
+            # So continue to next instruction.
+            (ins_address, register_object) = self.update_pc_register(
+                ins_address,
+                register_object
+            )
+            start_point = register_object[ARM_REG_PC]
+
+    def trace_register_values(self, start_point, end_points, register_object,  
+                            memory_map, condition_flags, trace_obj, branch_points, 
+                            current_path, null_registers={}, gc=0):
         logging.debug(  
             'Starting trace at '
             + hex(start_point)
-            + ' with block end: '
-            + hex(end_of_function_block)
             + ', counter: '
             + str(gc)
         )
-
+        
         # Start from the starting point within assembly,
         #  and follow the instructions along the chain.
         ins_address = start_point
@@ -197,64 +268,12 @@ class RegisterEvaluator:
                     + hex(ins_address)
                     + '. Skipping'
                 )
-                return
+                return (None, None, None, None)
             
-            # If we have arrived at an end point, i.e., a COI, then
-            #  send the registers and memory map to COI Processor, to process.
+            # If we have arrived at an end point, then
+            #  return the registers and memory map.
             if ins_address in end_points:
-                coi_name = end_point_obj[ins_address]
-                memory_map = {
-                    key:memory_map[key] 
-                        for key in sorted(memory_map.keys())
-                }
-                register_object = {
-                    key:register_object[key] 
-                        for key in sorted(register_object.keys())
-                }
-
-                out_obj = {
-                    'memory': memory_map,
-                    'registers': register_object
-                }
-                
-                logging.debug(
-                    'Endpoint reached for '
-                    + coi_name
-                    + ' at '
-                    + hex(ins_address)
-                    + '!\n'
-                    + 'memory: '
-                    + self.print_memory(memory_map)
-                    + '\nregisters: '
-                    + self.print_memory(register_object)
-                )
-
-                # Process the output and get updated memory map.
-                memory_map = self.coi_processor.process_trace_output(
-                    {coi_name:out_obj}
-                )
-                memory_map = {
-                    key:memory_map[key] 
-                        for key in sorted(memory_map.keys())
-                }
-                end_points.remove(ins_address)
-                
-                # Output of SVC is an error code stored in register r0.
-                # Output of function call is unknown.
-                #  We assume 0, i.e., no error.
-                register_object = self.store_register_bytes(
-                    register_object,
-                    ARM_REG_R0,
-                    '00000000'
-                )
-                # We've done all the processing we want to, 
-                #  for the COI call instruction.
-                # So continue to next instruction.
-                (ins_address, register_object) = self.update_pc_register(
-                    ins_address,
-                    register_object
-                )
-                continue
+                return (ins_address, trace_obj, memory_map, register_object)
 
             # Instructions we needn't process (NOP, etc).
             skip_insn = self.check_skip_instruction(ins_address)
@@ -302,7 +321,11 @@ class RegisterEvaluator:
                     )
                     continue
                 else:
-                    return
+                    logging.trace(
+                        'Branch processing indicates that next instruction '
+                        + 'should not be executed.'
+                    )
+                    return (None, None, None, None)
             # Table Branch instructions require quite a bit of processing.
             elif (opcode_id in [ARM_INS_TBB, ARM_INS_TBH]):
                 self.process_table_branch_instruction(
@@ -314,7 +337,7 @@ class RegisterEvaluator:
                     ins_address,
                     null_registers
                 )
-                return
+                return (None, None, None, None)
             # IT instructions.
             elif opcode_id == ARM_INS_IT:
                 self.process_it_instruction(
@@ -326,7 +349,7 @@ class RegisterEvaluator:
                     condition_flags,
                     null_registers
                 )
-                return
+                return (None, None, None, None)
                 
             # Compute the values of the registers.
             (register_object, memory_map, condition_flags, null_registers) = \
@@ -342,7 +365,10 @@ class RegisterEvaluator:
             # In the event that PC is passed to POP, there will be a branch.
             #  Presumably we wouldn't continue with the current trace then.
             if register_object == None:
-                return
+                logging.trace(
+                    'Register object returned null. Probably POP {PC}'
+                )
+                return (None, None, None, None)
             (ins_address, register_object) = self.update_pc_register(
                 ins_address,
                 register_object
@@ -3976,6 +4002,14 @@ class RegisterEvaluator:
         )
         if len(trace_obj_list) > 0:
             trace_obj = trace_obj_list[0]
+            address_obj = trace_obj['branch_or_end_points'][prev_address]
+            branch_target = list(address_obj['branch_target'].keys())[0]
+            expected_obj = address_obj['branch_target'][branch_target]
+            expected_obj = expected_obj['branch_or_end_points']
+            expected_ids = self.get_endpoint_ids(expected_obj)
+            for expected_id in expected_ids:
+                if expected_id not in self.obtained_endpoints:
+                    self.num_expected_endpoints -= 1
         return trace_obj
 
     def generate_return_trace_obj(self, json_tree, branchpoint, trace_obj, output_list):
@@ -4644,7 +4678,7 @@ class RegisterEvaluator:
         argument_list = self.get_pickled_arguments(pickle_path)
         
         # Execute the method with the provided arguments.
-        self.trace_register_values(*argument_list)
+        self.trace_cois(*argument_list)
         
     def get_pickled_arguments(self, pickle_path):
         """Load pickled data from file."""
@@ -4666,3 +4700,16 @@ class RegisterEvaluator:
         # We no longer need the file. Delete it to save space.
         os.remove(pickle_path)
         return argument_list
+        
+    def get_endpoint_ids(self, dictionary):
+        endpoints = []
+        for k in dictionary:
+            if dictionary[k]['is_end'] == False:
+                for branch in dictionary[k]['branch_target']:
+                    endpoints = endpoints + self.get_endpoint_ids(
+                        dictionary[k]['branch_target'][branch]['branch_or_end_points']
+                    )
+            else:
+                endpoints.append(dictionary[k]['id'])
+        return endpoints
+        
