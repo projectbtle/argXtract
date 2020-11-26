@@ -64,7 +64,7 @@ class FunctionEvaluator:
         switch_addresses = []
         for address in common_objs.replace_functions:
             if (common_objs.replace_functions[address]['type'] 
-                    in [consts.FN_SWITCH8, consts.FN_GNUTHUMB, consts.FN_GNUTHUMBCALL]):
+                    in [consts.FN_ARMSWITCH8, consts.FN_GNUTHUMB, consts.FN_GNUTHUMBCALL]):
                 switch_addresses.append(address)
         for switch_address in switch_addresses:
             common_objs.replace_functions.pop(switch_address, None)
@@ -311,8 +311,10 @@ class FunctionEvaluator:
         logging.debug('Estimating functions using exit instructions.')
         num_functions = len(function_block_start_addresses)
         new_function_block_start_addresses = []
-        for idx, function_start in enumerate(function_block_start_addresses):
-            fblock_start = function_start
+        overrun = None
+        idx = 0
+        while idx < num_functions:
+            fblock_start = function_block_start_addresses[idx]
             if idx == (num_functions-1):
                 current_fblock_end = self.all_addresses[-1]
             else:
@@ -320,14 +322,36 @@ class FunctionEvaluator:
                     function_block_start_addresses[idx+1]
                 )
                 current_fblock_end = self.all_addresses[all_address_index-1]
-            new_function_blocks = self.analyse_function_block_for_exit_ins(
+            (new_function_blocks, overrun) = self.analyse_function_block_for_exit_ins(
                 fblock_start,
                 current_fblock_end,
                 [fblock_start]
             )
+            
+            while overrun != None:
+                current_index = function_block_start_addresses.index(fblock_start)
+
+                i = current_index+1
+                for i in range(current_index+1, len(function_block_start_addresses)):
+                    all_address_index = self.all_addresses.index(
+                        function_block_start_addresses[i]
+                    )
+                    new_fblock_end = self.all_addresses[all_address_index-1]
+                    if overrun < function_block_start_addresses[i]:
+                        break
+                        
+                idx = i
+                
+                (new_function_blocks, overrun) = self.analyse_function_block_for_exit_ins(
+                    fblock_start,
+                    new_fblock_end,
+                    [fblock_start]
+                )
             for function_block in new_function_blocks:
                 if function_block not in new_function_block_start_addresses:
                     new_function_block_start_addresses.append(function_block)
+            idx += 1
+                    
         return new_function_block_start_addresses
         
     def analyse_function_block_for_exit_ins(self, start, end, flist):
@@ -390,7 +414,7 @@ class FunctionEvaluator:
                     break
                 if (next_ins not in flist):
                     flist.append(next_ins)
-                flist = self.analyse_function_block_for_exit_ins(
+                (flist, _) = self.analyse_function_block_for_exit_ins(
                     next_ins,
                     end, 
                     flist
@@ -402,12 +426,18 @@ class FunctionEvaluator:
             if address in common_objs.replace_functions:
                 if (common_objs.replace_functions[address]['type'] 
                         in [consts.PC_SWITCH, consts.FN_GNUTHUMBCALL, 
-                            consts.FN_SWITCH8CALL]):
+                            consts.FN_ARMSWITCH8CALL]):
                     is_candidate_address = True
                     original_address = address
-                    address = common_objs.replace_functions[original_address]['table_branch_max']
                     table_branch_addresses = \
                         common_objs.replace_functions[original_address]['table_branch_addresses']
+                # With PC switch, the next addresses may not immediately follow
+                #  the PC operation.
+                    if (common_objs.replace_functions[address]['type'] 
+                            in [consts.FN_GNUTHUMBCALL, consts.FN_ARMSWITCH8CALL]):
+                        address = common_objs.replace_functions[original_address]['table_branch_max']
+                    else:
+                        address = utils.get_next_address(self.all_addresses, address)
             elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
                 original_address = address
                 table_branch_addresses = \
@@ -437,6 +467,7 @@ class FunctionEvaluator:
                         + ') is greater than function end! '
                         + hex(original_address)
                     )
+                    return (flist, min_address)
                 if address%2 == 1: address-=1
                 logging.debug(
                     'Processed table branch at '
@@ -451,7 +482,7 @@ class FunctionEvaluator:
                 if address == None: break
             continue
 
-        return flist
+        return (flist, None)
         
     def get_valid_next_start(self, address, end):
         start = address    

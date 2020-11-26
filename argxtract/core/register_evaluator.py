@@ -28,25 +28,12 @@ class RegisterEvaluator:
         
         logging.debug('Trace object:\n' + json.dumps(trace_obj, indent=4))
         
-        self.start_time = timeit.default_timer()
-        
         self.coi_processor = coi_processor_instance
         self.master_trace_obj = trace_obj
         
         # Get starting point for trace from chain.
         start_points = trace_obj.keys()
-        
-        self.expected_endpoints = []
-        for start_point in start_points:
-            endpoint_addresses = self.get_endpoint_ids(
-                trace_obj[start_point]['branch_or_end_points']
-            )
-            for endpoint_address in endpoint_addresses:
-                self.expected_endpoints.append(endpoint_address)
-        self.num_expected_endpoints = len(self.expected_endpoints)
-        self.obtained_endpoints = []
-        self.num_obtained_endpoints = 0
-        
+
         # Get all instruction addresses.
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
@@ -56,28 +43,33 @@ class RegisterEvaluator:
                 continue
             self.all_addresses.append(address)
 
-        # Keep track of checked traces, to avoid repeating.
-        self.checked_traces = []
-        self.checked_paths = {}
-        self.global_counter = 0
-        
         # Keep track of unhandled instructions.
         self.unhandled = []
-        
-        # Start up instruction queue.
-        self.instruction_queue = collections.deque()
-            
-        
+
         # Get the stack pointer value.
         start_stack_pointer = \
             int(common_objs.application_vector_table['initial_sp'])
 
         for start_point in start_points:
-            if self.time_check() == True:
-                logging.debug('Timeout')
-                break
-                
             logging.debug('Start point: ' + hex(start_point))
+            
+            self.expected_endpoints = []
+            endpoint_addresses = self.get_endpoint_ids(
+                trace_obj[start_point]['branch_or_end_points']
+            )
+            for endpoint_address in endpoint_addresses:
+                self.expected_endpoints.append(endpoint_address)
+            self.num_expected_endpoints = len(self.expected_endpoints)
+            self.obtained_endpoints = []
+            self.num_obtained_endpoints = 0
+            
+            # Keep track of checked traces, to avoid repeating.
+            self.checked_paths = {}
+            self.global_counter = 0
+            
+            # Start up instruction queue.
+            self.instruction_queue = collections.deque()
+        
             # Initialise registers at the starting point.
             initialised_regs = {}
             for reg in consts.REGISTERS:
@@ -105,6 +97,9 @@ class RegisterEvaluator:
             self.checked_paths[hex(start_point)] = {}
             current_path = hex(start_point)
 
+            # Start the timer.
+            self.start_time = timeit.default_timer()
+            
             # Add item to queue.
             self.add_to_trace_queue(
                 start_point,
@@ -172,12 +167,13 @@ class RegisterEvaluator:
                     register_object, memory_map, condition_flags, trace_obj, 
                     branch_points, current_path, null_registers, gc)
             if trace_obj == None: 
-                return   
-
-            self.obtained_endpoints.append(
-                trace_obj['branch_or_end_points'][ins_address]['id']
-            )
-            self.num_obtained_endpoints += 1
+                return
+            obtained_id = trace_obj['branch_or_end_points'][ins_address]['id']
+            if obtained_id not in self.obtained_endpoints:
+                self.obtained_endpoints.append(
+                    obtained_id
+                )
+            self.num_obtained_endpoints = len(self.obtained_endpoints)
             coi_name = end_point_obj[ins_address]
             memory_map = {
                 key:memory_map[key] 
@@ -230,11 +226,16 @@ class RegisterEvaluator:
                 ins_address,
                 register_object
             )
+            if ins_address == None: break
             start_point = register_object[ARM_REG_PC]
+            
+        if self.num_expected_endpoints == self.num_obtained_endpoints:
+            logging.debug('Obtained all expected endpoints for this trace.')
+            return
 
     def trace_register_values(self, start_point, end_points, register_object,  
                             memory_map, condition_flags, trace_obj, branch_points, 
-                            current_path, null_registers={}, gc=0):
+                            current_path, null_registers={}, gc=0, exec_last=False):
         logging.debug(  
             'Starting trace at '
             + hex(start_point)
@@ -247,6 +248,14 @@ class RegisterEvaluator:
         ins_address = start_point
         code_end = self.all_addresses[-1]
         while ins_address <= code_end:
+            pre_exec_address = ins_address
+            
+            # If we have arrived at an end point, then
+            #  return the registers and memory map.
+            if exec_last == False:
+                if ins_address in end_points:
+                    return (ins_address, trace_obj, memory_map, register_object)
+                
             if ins_address in common_objs.errored_instructions:
                 logging.trace(
                     'Errored instruction at '
@@ -257,6 +266,7 @@ class RegisterEvaluator:
                     ins_address,
                     register_object
                 )
+                if ins_address == None: break
                 continue
                 
             # We assume that the code must contain ways to skip inline data
@@ -269,11 +279,6 @@ class RegisterEvaluator:
                     + '. Skipping'
                 )
                 return (None, None, None, None)
-            
-            # If we have arrived at an end point, then
-            #  return the registers and memory map.
-            if ins_address in end_points:
-                return (ins_address, trace_obj, memory_map, register_object)
 
             # Instructions we needn't process (NOP, etc).
             skip_insn = self.check_skip_instruction(ins_address)
@@ -287,6 +292,7 @@ class RegisterEvaluator:
                     ins_address,
                     register_object
                 )
+                if ins_address == None: break
                 continue
             
             insn = common_objs.disassembled_firmware[ins_address]['insn']
@@ -319,6 +325,7 @@ class RegisterEvaluator:
                         ins_address,
                         register_object
                     )
+                    if ins_address == None: break
                     continue
                 else:
                     logging.trace(
@@ -373,6 +380,12 @@ class RegisterEvaluator:
                 ins_address,
                 register_object
             )
+            if ins_address == None: break
+            
+            if exec_last == True:
+                if pre_exec_address in end_points:
+                    return (pre_exec_address, trace_obj, memory_map, register_object)
+        return (None, None, None, None)
     
     def update_pc_register(self, ins_address, register_object):
         if ins_address in common_objs.errored_instructions:
@@ -393,6 +406,8 @@ class RegisterEvaluator:
                     should_update_pc_value = True
         if should_update_pc_value == False:
             ins_address = register_object[ARM_REG_PC]
+            if type(ins_address) is str:
+                ins_address = int(ins_address, 16)
             return (ins_address, register_object) 
             
         pc_address = self.get_next_address(self.all_addresses, ins_address)
@@ -4002,6 +4017,8 @@ class RegisterEvaluator:
         )
         if len(trace_obj_list) > 0:
             trace_obj = trace_obj_list[0]
+            if common_objs.bypass_all_conditional_checks == True:
+                return trace_obj
             address_obj = trace_obj['branch_or_end_points'][prev_address]
             branch_target = list(address_obj['branch_target'].keys())[0]
             expected_obj = address_obj['branch_target'][branch_target]
@@ -4140,7 +4157,9 @@ class RegisterEvaluator:
         if index_register != 0:
             if current_reg_values[index_register] == None:
                 logging.error(
-                    'Index register is None. Cannot compute memory address.'
+                    'Index register '
+                    + str(index_register)
+                    + ' is None. Cannot compute memory address.'
                 )
                 return(src_memory_address, next_reg_values)
                 
@@ -4662,6 +4681,8 @@ class RegisterEvaluator:
     def queue_handler(self):
         """Call queue handler as long as queue not empty and time available. """
         while ((self.instruction_queue) and (self.time_check()!=True)):
+            if self.num_obtained_endpoints == self.num_expected_endpoints:
+                return
             self.handle_queue()
 
     def time_check(self):

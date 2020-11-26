@@ -2,6 +2,7 @@ import os
 import sys
 import struct
 import logging
+import numpy as np
 
 from capstone import *
 from capstone.arm import *
@@ -12,6 +13,7 @@ from argxtract.core import consts
 from argxtract.core import binary_operations as binops
 from argxtract.common import paths as common_paths
 from argxtract.common import objects as common_objs
+from argxtract.core.register_evaluator import RegisterEvaluator
 
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB + CS_MODE_LITTLE_ENDIAN)
 # Turn on SKIPDATA mode - this is needed!
@@ -415,11 +417,11 @@ class FirmwareDisassembler:
                 continue
                 
             # If the instruction writes to pc.
-            #if insn.id in [ARM_INS_LDR, ARM_INS_ADD, ARM_INS_MOV, 
-            #        ARM_INS_MOVT, ARM_INS_MOVW]:
-            #    if insn.operands[0].value.reg == ARM_REG_PC:
-            #        ins_address = self.handle_data_pc(ins_address)
-            #        continue
+            if insn.id in [ARM_INS_LDR, ARM_INS_ADD, ARM_INS_MOV, 
+                    ARM_INS_MOVT, ARM_INS_MOVW]:
+                if insn.operands[0].value.reg == ARM_REG_PC:
+                    ins_address = self.handle_data_pc(ins_address)
+                    continue
             
 
     def handle_data_byte(self, ins_address):
@@ -438,7 +440,7 @@ class FirmwareDisassembler:
     def handle_data_switch8_table(self, ins_address):
         if ins_address not in common_objs.replace_functions:
             common_objs.replace_functions[ins_address] = {
-                'type': consts.FN_SWITCH8CALL
+                'type': consts.FN_ARMSWITCH8CALL
             }
         else:
             return ins_address
@@ -503,6 +505,9 @@ class FirmwareDisassembler:
         #  the address the comparison occurs at and the subsequent branch.
         (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
             self.get_preceding_comparison_branch(ins_address)
+        if comp_value == None:
+            ins_address += len(insn.bytes)
+            return ins_address
             
         # In case the comparsion register is overwritten:            
         address = cbranch
@@ -605,13 +610,6 @@ class FirmwareDisassembler:
         return ins_address
         
     def handle_data_pc(self, ins_address):
-        if ins_address not in common_objs.replace_functions:
-            common_objs.replace_functions[ins_address] = {
-                'type': consts.PC_SWITCH
-            }
-        else:
-            return ins_address
-            
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         next_address = ins_address + len(insn.bytes)
         pc_address = ins_address + 4
@@ -620,61 +618,160 @@ class FirmwareDisassembler:
         #  the address the comparison occurs at and the subsequent branch.
         (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
             self.get_preceding_comparison_branch(ins_address)
-            
-        ldr_address = comp_address
-        while ldr_address < ins_address:
-            ldr_address += 2
-            if common_objs.disassembled_firmware[ldr_address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[ldr_address]['insn'] == None:
-                continue    
-            ldr_insn = common_objs.disassembled_firmware[ldr_address]['insn']
-            if ldr_insn.id not in [ARM_INS_LDR, ARM_INS_LDRB, ARM_INS_LDRH]:
-                continue
-            break
-            
-        if ldr_insn == None:
+        if comp_value == None:
+            ins_address += len(insn.bytes)
             return ins_address
             
-        if ldr_insn.id == ARM_INS_LDRB:
-            mul_factor = 1
-        elif ldr_insn.id == ARM_INS_LDRH:
-            mul_factor = 2
-        else:
-            mul_factor = 4
-            
         num_entries = (comp_value + 1)
-        size_table = num_entries * mul_factor
-        common_objs.replace_functions[ins_address]['size_table'] = size_table
         
-        table_branch_max = next_address + size_table
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        trace_start = utils.get_next_address(all_addresses, cbranch)
+        
+        if (common_objs.disassembled_firmware[trace_start]['insn'].id 
+                in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX,
+                    ARM_INS_CBZ, ARM_INS_CBNZ]):
+            trace_start = utils.get_next_address(all_addresses, trace_start)
+            
+        # Identify the LDR instruction address, 
+        #  so that we can identify LDR sources and mark them as data. 
+        ldr_address = trace_start
+        while ldr_address < ins_address:
+            if ldr_address in common_objs.errored_instructions:
+                ldr_address = utils.get_next_address(all_addresses, ldr_address)
+                continue
+            ldr_insn = common_objs.disassembled_firmware[ldr_address]
+            if ldr_insn['insn'] == None:
+                ldr_address = utils.get_next_address(all_addresses, ldr_address)
+                continue
+            # We don't care about PC-relevant LDR because we will have handled
+            #  those already.
+            if self.check_valid_pc_ldr(ldr_address) == True:
+                ldr_address = utils.get_next_address(all_addresses, ldr_address)
+                continue
+            # If instruction is a LDR
+            if (ldr_insn['insn'].id in [ARM_INS_LDR, ARM_INS_LDRB, ARM_INS_LDRH,
+                    ARM_INS_LDRSB, ARM_INS_LDRSH]):
+                break
+            ldr_address = utils.get_next_address(all_addresses, ldr_address)
+        
+        if ldr_address == ins_address: 
+            logging.error('No LDR instruction')
+            ins_address = utils.get_next_address(all_addresses, ins_address)
+            return ins_address
+
+        ldr_insn = common_objs.disassembled_firmware[ldr_address]['insn']
+        ldr_operands = ldr_insn.operands
+        base_register = ldr_operands[1].value.mem.base
+        if base_register in [ARM_REG_LR, ARM_REG_SP]:
+            logging.error('Unsupported PC switch.')
+            ins_address = utils.get_next_address(all_addresses, ins_address)
+            return ins_address
+            
+        ldr_size = 1
+        if ldr_insn.id in [ARM_INS_LDRSH, ARM_INS_LDRH]:
+            ldr_size = 2
+        elif ldr_insn.id == ARM_INS_LDR:
+            ldr_size = 4
+        post_index_reg = None
+        if len(ldr_operands) == 3:
+            post_index_reg = ldr_operands[2]
+                
+        logging.debug('Tracing for PC switch.')
+        ldr_trace_end = utils.get_previous_address(all_addresses, ldr_address)
+        for i in range(num_entries):
+            logging.trace('Tracing for PC switch LDRs with index ' + str(i))
+            self.reg_eval = RegisterEvaluator()
+            self.reg_eval.all_addresses = all_addresses
+            # Initialise parameters.
+            ## Initialise registers.
+            initialised_regs = {}
+            for reg in consts.REGISTERS:
+                initialised_regs[reg] = None
+            initialised_regs[ARM_REG_PC] = \
+                '{0:08x}'.format(self.reg_eval.get_pc_value(trace_start))
+            initialised_regs[comp_reg] = utils.convert_type(np.uint8(i), 'hex')
+            ## Initialise path.
+            current_path = hex(trace_start)
+            ## Initialise condition flags.
+            condition_flags = self.reg_eval.initialise_condition_flags()
+            
+            # Trace LDR using register evaluator.
+            (_, _, _, register_object) = \
+                self.reg_eval.trace_register_values(trace_start, [ldr_trace_end],   
+                    initialised_regs, {}, condition_flags, {}, 
+                    {}, current_path, {}, 0, True)
+            
+            (src_memory_address, _) = \
+                self.reg_eval.get_memory_address(
+                    register_object,
+                    ldr_address,
+                    ldr_operands[1],
+                    ldr_insn.writeback,
+                    post_index_reg
+                )
+            if src_memory_address == None:
+                logging.debug(
+                    'Unable to compute PC LDR address. '
+                    + 'Skipping.'
+                )
+                ins_address = utils.get_next_address(all_addresses, ins_address)
+                return ins_address
+                
+            logging.debug(
+                'Marking '
+                + hex(src_memory_address)
+                + ' as PC LDR address (switch table).'
+            )
+            common_objs.disassembled_firmware[src_memory_address]['is_data'] = True
+            common_objs.disassembled_firmware[src_memory_address]['insn'] = None
+            if ldr_insn.id == ARM_INS_LDR:
+                common_objs.disassembled_firmware[src_memory_address+2]['is_data'] = True
+            common_objs.disassembled_firmware[src_memory_address+2]['insn'] = None
+            self.reg_eval = None
+            
+        # Everything needs to be re-initialised, so just do this separately.
+        table_branch_addresses = []
+        for i in range(num_entries):
+            logging.trace('Tracing for PC switch table entries with index ' + str(i))
+            self.reg_eval = RegisterEvaluator()
+            self.reg_eval.all_addresses = all_addresses
+            # Initialise parameters.
+            ## Initialise registers.
+            initialised_regs = {}
+            for reg in consts.REGISTERS:
+                initialised_regs[reg] = None
+            initialised_regs[ARM_REG_PC] = \
+                '{0:08x}'.format(self.reg_eval.get_pc_value(trace_start))
+            initialised_regs[comp_reg] = utils.convert_type(np.uint8(i), 'hex')
+            ## Initialise path.
+            current_path = hex(trace_start)
+            ## Initialise condition flags.
+            condition_flags = self.reg_eval.initialise_condition_flags()
+            # Get PC value.
+            (_, _, _, register_object) = \
+                self.reg_eval.trace_register_values(trace_start, [ins_address],   
+                    initialised_regs, {}, condition_flags, {}, 
+                    {}, current_path, {}, 0, True)
+            
+            pc_value = int(register_object[ARM_REG_PC], 16)
+            table_branch_addresses.append(pc_value)
+            
+            self.reg_eval = None
+
+        if ins_address not in common_objs.replace_functions:
+            common_objs.replace_functions[ins_address] = {
+                'type': consts.PC_SWITCH
+            }
+        else:
+            return ins_address
+        common_objs.replace_functions[ins_address]['table_branch_addresses'] = \
+            table_branch_addresses
+            
+        table_branch_max = max(table_branch_addresses)
         common_objs.replace_functions[ins_address]['table_branch_max'] = \
             table_branch_max
             
-        logging.debug(
-            'Skip PC switch table at '
-            + hex(ins_address)
-            + ' to '
-            + hex(table_branch_max)
-        )
-            
-        # Get all possible addresses.
-        table_branch_addresses = []
-        for i in range(num_entries):
-            index_address = next_address + (mul_factor*i)
-            value = utils.get_firmware_bytes(
-                index_address, 
-                num_bytes=mul_factor
-            )
-            value = value.zfill(8)
-            value = int(value, 16)
-            
-            branch_address = pc_address + (value*2)
-            table_branch_addresses.append(branch_address)
-        
-        common_objs.replace_functions[ins_address]['table_branch_addresses'] = \
-            table_branch_addresses
-           
         table_branch_address_str = ''
         for table_branch_address in table_branch_addresses:
             table_branch_address_str += hex(table_branch_address)
@@ -683,11 +780,8 @@ class FirmwareDisassembler:
         logging.debug(
             'PC switch branch addresses: ' 
             + table_branch_address_str
-        )           
-        
-        self.mark_table_as_data(next_address, table_branch_max, 'PC switch')
-        
-        ins_address = table_branch_max
+        )
+        ins_address = utils.get_next_address(all_addresses, ins_address)
         return ins_address
         
     def handle_data_table_branches(self, ins_address):
@@ -702,7 +796,10 @@ class FirmwareDisassembler:
         #  the address the comparison occurs at and the subsequent branch.
         (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
             self.get_preceding_comparison_branch(ins_address)
-                
+        if comp_value == None:
+            ins_address += len(insn.bytes)
+            return ins_address
+            
         common_objs.table_branches[ins_address]['comparison_value'] = \
             comp_value
         common_objs.table_branches[ins_address]['comparison_address'] = \
@@ -778,6 +875,9 @@ class FirmwareDisassembler:
             comp_address = address
             break
         
+        if comp_address == None:
+            return (None, None, None, None, None)
+            
         cbranch = comp_address
         cbranch_condition = None
         while cbranch < ins_address:
@@ -1029,7 +1129,7 @@ class FirmwareDisassembler:
         logging.info('ARM switch8 identified at ' + hex(arm_switch8))
         self.arm_switch8 = arm_switch8
         common_objs.replace_functions[arm_switch8] = {
-            'type': consts.FN_SWITCH8
+            'type': consts.FN_ARMSWITCH8
         }
     
     def identify_gnu_switch(self):
