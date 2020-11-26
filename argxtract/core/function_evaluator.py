@@ -397,8 +397,25 @@ class FunctionEvaluator:
                 )
                 break
                 
+            # Look at PC switch.
+            is_candidate_address = False
+            if address in common_objs.replace_functions:
+                if (common_objs.replace_functions[address]['type'] 
+                        in [consts.PC_SWITCH, consts.FN_GNUTHUMBCALL, 
+                            consts.FN_SWITCH8CALL]):
+                    is_candidate_address = True
+                    original_address = address
+                    address = common_objs.replace_functions[original_address]['table_branch_max']
+                    table_branch_addresses = \
+                        common_objs.replace_functions[original_address]['table_branch_addresses']
+            elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
+                original_address = address
+                table_branch_addresses = \
+                    common_objs.table_branches[original_address]['table_branch_addresses']
+                address = common_objs.table_branches[original_address]['table_branch_max']
+                is_candidate_address = True
             # Look at all the branch instructions.
-            if insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
+            elif insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
                 if (insn.id == ARM_INS_B):
                     branch_target = operands[0].value.imm
                 else:
@@ -406,75 +423,20 @@ class FunctionEvaluator:
                 if (branch_target <= end):
                     if address not in branches:
                         branches[address] = [branch_target]
-            elif insn.id == ARM_INS_BL:
-                branch_target = operands[0].value.imm
-                if branch_target in common_objs.replace_functions:
-                    if common_objs.replace_functions[branch_target]['type'] == consts.FN_SWITCH8:
-                        lr_value = address+4
-                        switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
-                        end_index = int(switch_table_len_byte, 16)
-                        post_skip_instruction_address = lr_value + end_index + 2
-                        if post_skip_instruction_address%2 == 1: 
-                            post_skip_instruction_address += 1
-                        logging.debug(
-                            'Identified call to ARM_SWITCH8 at '
-                            + hex(address)
-                            + '. Instruction following switch table at: '
-                            + hex(post_skip_instruction_address)
-                        )
-                        max_switch8_address = post_skip_instruction_address
-                        switch8_index = lr_value
-                        while switch8_index < (post_skip_instruction_address-1):
-                            switch8_index += 1
-                            switch_table_index = utils.get_firmware_bytes(switch8_index, 1)
-                            (result,carry) = \
-                                binops.logical_shift_left(switch_table_index, 1)
-                            result_bin = utils.get_binary_representation(result, 8)
-                            result = str(carry) + result_bin
-                            switch8_address = lr_value + int(result, 2)
-                            if switch8_address > max_switch8_address:
-                                max_switch8_address = switch8_address
-                        logging.debug(
-                            'Maximum address referenced by ARM_SWITCH8 is '
-                            + hex(max_switch8_address)
-                        )
-                        branches[address] = [max_switch8_address]
-                    elif common_objs.replace_functions[branch_target]['type'] == consts.FN_GNUTHUMB:
-                        original_address = address
-                        table_branch_addresses = \
-                            common_objs.replace_functions[original_address]['table_branch_addresses']
-                        branches[address] = table_branch_addresses
-                        largest_table_address = max(table_branch_addresses)
-                        min_address = largest_table_address
-                        if min_address > end:
-                            logging.error(
-                                'Table address ('
-                                + hex(min_address)
-                                + ') is greater than function end! (GNU switch) '
-                                + hex(original_address)
-                            )
-                        address = common_objs.replace_functions[original_address]['table_branch_max']
-                        if address%2 == 1: address-=1
-                        logging.debug(
-                            'Processed (GNU switch) table branch at '
-                            + hex(original_address)
-                            + '. Now skipping to ' 
-                            + hex(address)
-                        )
-                        
-            elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
-                original_address = address
-                table_branch_addresses = \
-                    common_objs.table_branches[address]['table_branch_addresses']
-                branches[address] = table_branch_addresses
+
+            # If we've marked an ARM_SWITCH8, GNU_THUMB or TBB/TBH, 
+            #  then process the table.
+            if is_candidate_address == True:
+                branches[original_address] = table_branch_addresses
                 largest_table_address = max(table_branch_addresses)
                 min_address = largest_table_address
                 if min_address > end:
                     logging.error(
-                        'Table address is greater than function end! '
+                        'Table address ('
+                        + hex(min_address)
+                        + ') is greater than function end! '
                         + hex(original_address)
                     )
-                address = common_objs.table_branches[address]['table_branch_max']
                 if address%2 == 1: address-=1
                 logging.debug(
                     'Processed table branch at '
@@ -484,8 +446,9 @@ class FunctionEvaluator:
                 )
             
             # Analyse next instruction.
-            address = utils.get_next_address(self.all_addresses, address)
-            if address == None: break
+            if is_candidate_address == False:
+                address = utils.get_next_address(self.all_addresses, address)
+                if address == None: break
             continue
 
         return flist

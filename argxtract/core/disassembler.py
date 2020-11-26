@@ -413,6 +413,14 @@ class FirmwareDisassembler:
             if ((self.check_valid_pc_ldr(ins_address) == True) or (insn.id == ARM_INS_ADR)):
                 ins_address = self.handle_data_ldr_adr(ins_address)
                 continue
+                
+            # If the instruction writes to pc.
+            #if insn.id in [ARM_INS_LDR, ARM_INS_ADD, ARM_INS_MOV, 
+            #        ARM_INS_MOVT, ARM_INS_MOVW]:
+            #    if insn.operands[0].value.reg == ARM_REG_PC:
+            #        ins_address = self.handle_data_pc(ins_address)
+            #        continue
+            
 
     def handle_data_byte(self, ins_address):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
@@ -426,54 +434,60 @@ class FirmwareDisassembler:
             return ins_address
         common_objs.disassembled_firmware[ins_address]['is_data'] = True
         return ins_address
-        
+
     def handle_data_switch8_table(self, ins_address):
+        if ins_address not in common_objs.replace_functions:
+            common_objs.replace_functions[ins_address] = {
+                'type': consts.FN_SWITCH8CALL
+            }
+        else:
+            return ins_address
         # Skip next few instructions.
         lr_value = ins_address+4
         switch_table_len_byte = utils.get_firmware_bytes(lr_value, 1)
         end_index = int(switch_table_len_byte, 16)
-        post_skip_instruction_address = lr_value + end_index + 2
-        if post_skip_instruction_address%2 == 1: 
-            post_skip_instruction_address += 1
+        table_branch_max = lr_value + end_index + 2
+        if table_branch_max%2 == 1: 
+            table_branch_max += 1
         logging.debug(
             'Call to ARM_Switch8 at '
             + hex(ins_address)
             + '. Skipping next few instructions to '
-            + hex(post_skip_instruction_address)
+            + hex(table_branch_max)
         )
-        switch8_address = lr_value
-        original_bytes = None
-        while switch8_address < post_skip_instruction_address:
-            if common_objs.disassembled_firmware[switch8_address]['insn'] != None:
-                original_bytes = \
-                    common_objs.disassembled_firmware[switch8_address]['insn'].bytes
-            else:
-                original_bytes = b''
-            common_objs.disassembled_firmware[switch8_address]['is_data'] = True
-            common_objs.disassembled_firmware[switch8_address]['_insn'] = \
-                common_objs.disassembled_firmware[switch8_address]['insn']
-            common_objs.disassembled_firmware[switch8_address]['insn'] = None
-            switch8_address += 2
+        
+        common_objs.replace_functions[ins_address]['table_branch_max'] = \
+            table_branch_max
             
-        if len(original_bytes) == 4:
-            new_bytes = utils.get_firmware_bytes(switch8_address, 2)
-            new_bytes = bytes.fromhex(new_bytes)
-            new_insns = md.disasm(
-                new_bytes,
-                switch8_address
-            )
-            for new_insn in new_insns:
-                logging.debug(
-                    'Re-processing instruction at '
-                    + hex(new_insn.address)
-                )
-                common_objs.disassembled_firmware[new_insn.address] = {
-                    'insn': new_insn,
-                    'is_data': False
-                }
+        # Get all possible addresses.
+        table_branch_addresses = []
+        switch8_index = lr_value
+        while switch8_index < (table_branch_max-1):
+            switch8_index += 1
+            switch_table_index = utils.get_firmware_bytes(switch8_index, 1)
+            (result,carry) = \
+                binops.logical_shift_left(switch_table_index, 1)
+            result_bin = utils.get_binary_representation(result, 8)
+            result = str(carry) + result_bin
+            switch8_address = lr_value + int(result, 2)
+            table_branch_addresses.append(switch8_address)
+
+        common_objs.replace_functions[ins_address]['table_branch_addresses'] = \
+            table_branch_addresses
+           
+        table_branch_address_str = ''
+        for table_branch_address in table_branch_addresses:
+            table_branch_address_str += hex(table_branch_address)
+            table_branch_address_str += ';'
             
-        # 2 will be added in the loop.
-        ins_address = post_skip_instruction_address - 2
+        logging.debug(
+            'ARM branch addresses: ' 
+            + table_branch_address_str
+        )     
+        
+        self.mark_table_as_data(lr_value, table_branch_max, 'ARM switch')
+        
+        ins_address = table_branch_max
         return ins_address
                 
     def handle_data_gnu_switch_table(self, ins_address, subtype):
@@ -485,6 +499,27 @@ class FirmwareDisassembler:
             return ins_address
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         
+        # Get the value that is compared, the register that contains it,
+        #  the address the comparison occurs at and the subsequent branch.
+        (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
+            self.get_preceding_comparison_branch(ins_address)
+            
+        # In case the comparsion register is overwritten:            
+        address = cbranch
+        while address < ins_address:
+            address += 2
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[address]['insn'] == None:
+                continue
+            mov_insn = common_objs.disassembled_firmware[address]['insn']
+            if mov_insn.id not in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
+                continue
+            if mov_insn.operands[0].value.reg != ARM_REG_R0:
+                continue
+            if mov_insn.operands[1].type == ARM_OP_IMM:
+                comp_value = mov_insn.operands[1].value.imm
+                
         # Align LR
         lr_address = ins_address + 4
         if subtype in ['case_sqi', 'case_uqi']:
@@ -501,57 +536,7 @@ class FirmwareDisassembler:
             if rem > 0:
                 lr_address -= rem
             mul_factor = 4
-        
-        # Get comparison value.
-        address = ins_address
-        comparison_address = address
-        comp_value = None
-        for i in range(8):
-            address -= 2
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[address]['insn'] == None:
-                continue
-            prev_insn = common_objs.disassembled_firmware[address]['insn']
-            if prev_insn.id != ARM_INS_CMP:
-                continue
-            comp_value = prev_insn.operands[1].value.imm
-            comp_reg = prev_insn.operands[0].value.reg
-            comparison_address = address
-            break
-        
-        cbranch = comparison_address
-        cbranch_condition = None
-        while cbranch < ins_address:
-            cbranch += 2
-            if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[cbranch]['insn'] == None:
-                continue
-            branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
-            if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
-                continue
-            cbranch_condition = branch_insn.cc
-            break
 
-        if cbranch_condition in [ARM_CC_HS]:
-            comp_value -= 1
-            
-        address = cbranch
-        while address < ins_address:
-            address += 2
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[address]['insn'] == None:
-                continue
-            mov_insn = common_objs.disassembled_firmware[address]['insn']
-            if mov_insn.id not in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
-                continue
-            if mov_insn.operands[0].value.reg != ARM_REG_R0:
-                continue
-            if mov_insn.operands[1].type == ARM_OP_IMM:
-                comp_value = mov_insn.operands[1].value.imm
-        
         num_entries = (comp_value + 1)
         size_table = num_entries * mul_factor
         common_objs.replace_functions[ins_address]['size_table'] = size_table
@@ -614,41 +599,95 @@ class FirmwareDisassembler:
             + table_branch_address_str
         )           
         
-        original_bytes = None
-        while lr_address < table_branch_max:
-            logging.debug(
-                'Marking '
-                + hex(lr_address)
-                + ' as GNU switch index table.'
-            )
-            # Get the original bytes, as we may need to re-disassemble.
-            if common_objs.disassembled_firmware[lr_address]['insn'] != None:
-                original_bytes = \
-                    common_objs.disassembled_firmware[lr_address]['insn'].bytes
-            else:
-                original_bytes = b''
-            common_objs.disassembled_firmware[lr_address]['is_data'] = True
-            common_objs.disassembled_firmware[lr_address]['_insn'] = \
-                common_objs.disassembled_firmware[lr_address]['insn']
-            common_objs.disassembled_firmware[lr_address]['insn'] = None
-            lr_address += 2
+        self.mark_table_as_data(lr_address, table_branch_max, 'GNU switch')
+        
+        ins_address = table_branch_max
+        return ins_address
+        
+    def handle_data_pc(self, ins_address):
+        if ins_address not in common_objs.replace_functions:
+            common_objs.replace_functions[ins_address] = {
+                'type': consts.PC_SWITCH
+            }
+        else:
+            return ins_address
             
-        if len(original_bytes) == 4:
-            new_bytes = utils.get_firmware_bytes(lr_address, 2)
-            new_bytes = bytes.fromhex(new_bytes)
-            new_insns = md.disasm(
-                new_bytes,
-                lr_address
+        insn = common_objs.disassembled_firmware[ins_address]['insn']
+        next_address = ins_address + len(insn.bytes)
+        pc_address = ins_address + 4
+        
+        # Get the value that is compared, the register that contains it,
+        #  the address the comparison occurs at and the subsequent branch.
+        (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
+            self.get_preceding_comparison_branch(ins_address)
+            
+        ldr_address = comp_address
+        while ldr_address < ins_address:
+            ldr_address += 2
+            if common_objs.disassembled_firmware[ldr_address]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[ldr_address]['insn'] == None:
+                continue    
+            ldr_insn = common_objs.disassembled_firmware[ldr_address]['insn']
+            if ldr_insn.id not in [ARM_INS_LDR, ARM_INS_LDRB, ARM_INS_LDRH]:
+                continue
+            break
+            
+        if ldr_insn == None:
+            return ins_address
+            
+        if ldr_insn.id == ARM_INS_LDRB:
+            mul_factor = 1
+        elif ldr_insn.id == ARM_INS_LDRH:
+            mul_factor = 2
+        else:
+            mul_factor = 4
+            
+        num_entries = (comp_value + 1)
+        size_table = num_entries * mul_factor
+        common_objs.replace_functions[ins_address]['size_table'] = size_table
+        
+        table_branch_max = next_address + size_table
+        common_objs.replace_functions[ins_address]['table_branch_max'] = \
+            table_branch_max
+            
+        logging.debug(
+            'Skip PC switch table at '
+            + hex(ins_address)
+            + ' to '
+            + hex(table_branch_max)
+        )
+            
+        # Get all possible addresses.
+        table_branch_addresses = []
+        for i in range(num_entries):
+            index_address = next_address + (mul_factor*i)
+            value = utils.get_firmware_bytes(
+                index_address, 
+                num_bytes=mul_factor
             )
-            for new_insn in new_insns:
-                logging.debug(
-                    'Re-processing instruction at '
-                    + hex(new_insn.address)
-                )
-                common_objs.disassembled_firmware[new_insn.address] = {
-                    'insn': new_insn,
-                    'is_data': False
-                }
+            value = value.zfill(8)
+            value = int(value, 16)
+            
+            branch_address = pc_address + (value*2)
+            table_branch_addresses.append(branch_address)
+        
+        common_objs.replace_functions[ins_address]['table_branch_addresses'] = \
+            table_branch_addresses
+           
+        table_branch_address_str = ''
+        for table_branch_address in table_branch_addresses:
+            table_branch_address_str += hex(table_branch_address)
+            table_branch_address_str += ';'
+            
+        logging.debug(
+            'PC switch branch addresses: ' 
+            + table_branch_address_str
+        )           
+        
+        self.mark_table_as_data(next_address, table_branch_max, 'PC switch')
+        
+        ins_address = table_branch_max
         return ins_address
         
     def handle_data_table_branches(self, ins_address):
@@ -658,52 +697,21 @@ class FirmwareDisassembler:
         index_register = insn.operands[0].value.mem.index
         common_objs.table_branches[ins_address]['comparison_register'] = \
             index_register
-            
-        pc_address = ins_address + 4
-        address = ins_address
-        comparison_address = address
-        comp_value = None
-        for i in range(8):
-            address -= 2
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[address]['insn'] == None:
-                continue
-            prev_insn = common_objs.disassembled_firmware[address]['insn']
-            if prev_insn.id != ARM_INS_CMP:
-                continue
-            if prev_insn.operands[0].value.reg != index_register:
-                continue
-            comp_value = prev_insn.operands[1].value.imm
-            comparison_address = address
-            break
-            
-        cbranch = comparison_address
-        cbranch_condition = None
-        while cbranch < ins_address:
-            cbranch += 2
-            if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[cbranch]['insn'] == None:
-                continue
-            branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
-            if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
-                continue
-            cbranch_condition = branch_insn.cc
-            break
+
+        # Get the value that is compared, the register that contains it,
+        #  the address the comparison occurs at and the subsequent branch.
+        (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
+            self.get_preceding_comparison_branch(ins_address)
                 
         common_objs.table_branches[ins_address]['comparison_value'] = \
             comp_value
         common_objs.table_branches[ins_address]['comparison_address'] = \
-            comparison_address
+            comp_address
         common_objs.table_branches[ins_address]['branch_address'] = \
             cbranch
         common_objs.table_branches[ins_address]['branch_condition'] = \
             cbranch_condition
         
-        if cbranch_condition == ARM_CC_HS:
-            comp_value -= 1
-            
         num_entries = (comp_value + 1)
         if insn.id == ARM_INS_TBB:
             mul_factor = 1
@@ -712,6 +720,7 @@ class FirmwareDisassembler:
         size_table = num_entries * mul_factor
         common_objs.table_branches[ins_address]['size_table'] = size_table
         
+        pc_address = ins_address + 4
         table_branch_max = pc_address + size_table
         if insn.id == ARM_INS_TBB:
             if (table_branch_max%2 == 1):
@@ -746,32 +755,76 @@ class FirmwareDisassembler:
         common_objs.table_branches[ins_address]['table_branch_addresses'] = \
             table_branch_addresses
         
+        self.mark_table_as_data(pc_address, table_branch_max, 'table branch')
+        
+        return ins_address
+    
+    def get_preceding_comparison_branch(self, ins_address):
+        # Get comparison value.
+        address = ins_address
+        comp_address = None
+        comp_value = None
+        for i in range(8):
+            address -= 2
+            if common_objs.disassembled_firmware[address]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[address]['insn'] == None:
+                continue
+            prev_insn = common_objs.disassembled_firmware[address]['insn']
+            if prev_insn.id != ARM_INS_CMP:
+                continue
+            comp_value = prev_insn.operands[1].value.imm
+            comp_reg = prev_insn.operands[0].value.reg
+            comp_address = address
+            break
+        
+        cbranch = comp_address
+        cbranch_condition = None
+        while cbranch < ins_address:
+            cbranch += 2
+            if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
+                continue
+            if common_objs.disassembled_firmware[cbranch]['insn'] == None:
+                continue
+            branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
+            if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
+                continue
+            cbranch_condition = branch_insn.cc
+            break
+
+        if cbranch_condition in [ARM_CC_HS]:
+            comp_value -= 1
+        
+        return (comp_value, comp_reg, comp_address, cbranch, cbranch_condition)
+        
+    def mark_table_as_data(self, data_start_address, next_nondata, struct_name):
         original_bytes = None
-        while pc_address < table_branch_max:
+        while data_start_address < next_nondata:
             logging.debug(
                 'Marking '
-                + hex(pc_address)
-                + ' as branch index table.'
+                + hex(data_start_address)
+                + ' as '
+                + struct_name
+                + ' index table.'
             )
             # Get the original bytes, as we may need to re-disassemble.
-            if common_objs.disassembled_firmware[pc_address]['insn'] != None:
+            if common_objs.disassembled_firmware[data_start_address]['insn'] != None:
                 original_bytes = \
-                    common_objs.disassembled_firmware[pc_address]['insn'].bytes
+                    common_objs.disassembled_firmware[data_start_address]['insn'].bytes
             else:
                 original_bytes = b''
-            common_objs.disassembled_firmware[pc_address]['is_data'] = True
-            common_objs.disassembled_firmware[pc_address]['table_index'] = True
-            common_objs.disassembled_firmware[pc_address]['_insn'] = \
-                common_objs.disassembled_firmware[pc_address]['insn']
-            common_objs.disassembled_firmware[pc_address]['insn'] = None
-            pc_address += 2
+            common_objs.disassembled_firmware[data_start_address]['is_data'] = True
+            common_objs.disassembled_firmware[data_start_address]['_insn'] = \
+                common_objs.disassembled_firmware[data_start_address]['insn']
+            common_objs.disassembled_firmware[data_start_address]['insn'] = None
+            data_start_address += 2
             
         if len(original_bytes) == 4:
-            new_bytes = utils.get_firmware_bytes(pc_address, 2)
+            new_bytes = utils.get_firmware_bytes(data_start_address, 2)
             new_bytes = bytes.fromhex(new_bytes)
             new_insns = md.disasm(
                 new_bytes,
-                pc_address
+                data_start_address
             )
             for new_insn in new_insns:
                 logging.debug(
@@ -782,7 +835,6 @@ class FirmwareDisassembler:
                     'insn': new_insn,
                     'is_data': False
                 }
-        return ins_address
     
     def handle_data_ldr_adr(self, ins_address):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
