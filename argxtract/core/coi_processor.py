@@ -62,7 +62,9 @@ class CoiProcessor:
                 continue
             
             insn = common_objs.disassembled_firmware[ins_address]['insn']
-            
+            if insn == None: 
+                continue
+                
             # Only consider SVC instructions.
             if (insn.id != ARM_INS_SVC):
                 continue

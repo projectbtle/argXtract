@@ -248,6 +248,8 @@ class RegisterEvaluator:
         ins_address = start_point
         code_end = self.all_addresses[-1]
         while ins_address <= code_end:
+            register_object[ARM_REG_PC] = self.get_pc_value(ins_address)
+        
             pre_exec_address = ins_address
             
             # If we have arrived at an end point, then
@@ -404,15 +406,19 @@ class RegisterEvaluator:
                     should_update_pc_value = False
                 else:
                     should_update_pc_value = True
+                    
+        # This is to handle the case where PC has been overwritten
+        #  within the instruction.
         if should_update_pc_value == False:
             ins_address = register_object[ARM_REG_PC]
             if type(ins_address) is str:
                 ins_address = int(ins_address, 16)
             return (ins_address, register_object) 
-            
-        pc_address = self.get_next_address(self.all_addresses, ins_address)
-        ins_address = pc_address
+
+        pc_address = self.get_pc_value(ins_address)
         register_object[ARM_REG_PC] = pc_address
+        ins_address = self.get_next_address(self.all_addresses, ins_address)
+
         return (ins_address, register_object)
         
     def get_branch_end_points_from_trace_obj(self, trace_obj):
@@ -449,9 +455,10 @@ class RegisterEvaluator:
                 branch_register,
                 'int'
             )
-            logging.trace('Branch target is ' + hex(branch_target))
+            
             # Do we need further processing for ARM/Thumb switch?
             if branch_target != None:
+                logging.trace('Branch target is ' + hex(branch_target))
                 if branch_target % 2 == 1:
                     branch_target = branch_target - 1
                     logging.trace(
@@ -1304,8 +1311,12 @@ class RegisterEvaluator:
     def process_reg_values_for_instruction(self, register_object, memory_map, 
                                 trace_obj, current_path, ins_address, 
                                 condition_flags, null_registers):
+        if ins_address in common_objs.errored_instructions:
+            return (None, None, None, None)
         instruction = common_objs.disassembled_firmware[ins_address]['insn']
-        
+        if instruction == None:
+            return (None, None, None, None)
+            
         # If the instruction is to be executed conditionally, first check 
         #  if the condition is satisfied.
         if condition_flags != None:

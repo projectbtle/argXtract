@@ -377,6 +377,11 @@ class FunctionEvaluator:
             potential_end = False
             if fw_bytes['is_data'] == True:
                 potential_end = True
+            elif fw_bytes['insn'] == None:
+                potential_end = True
+            elif fw_bytes['insn'].id == ARM_INS_INVALID:
+                insn = fw_bytes['insn']
+                potential_end = True
             else:
                 # Logical exit points for a function are bx, pop-pc and 
                 #  unconditional self-targeting branches.
@@ -440,10 +445,11 @@ class FunctionEvaluator:
                         address = utils.get_next_address(self.all_addresses, address)
             elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
                 original_address = address
-                table_branch_addresses = \
-                    common_objs.table_branches[original_address]['table_branch_addresses']
-                address = common_objs.table_branches[original_address]['table_branch_max']
-                is_candidate_address = True
+                if original_address in common_objs.table_branches:
+                    table_branch_addresses = \
+                        common_objs.table_branches[original_address]['table_branch_addresses']
+                    address = common_objs.table_branches[original_address]['table_branch_max']
+                    is_candidate_address = True
             # Look at all the branch instructions.
             elif insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
                 if (insn.id == ARM_INS_B):
