@@ -62,6 +62,7 @@ class RegisterEvaluator:
             self.num_expected_endpoints = len(self.expected_endpoints)
             self.obtained_endpoints = []
             self.num_obtained_endpoints = 0
+            logging.debug('Expected endpoints: ' + str(self.expected_endpoints))
             
             # Keep track of checked traces, to avoid repeating.
             self.checked_paths = {}
@@ -168,12 +169,22 @@ class RegisterEvaluator:
                     branch_points, current_path, null_registers, gc)
             if trace_obj == None: 
                 return
+                
+            # Check the obtained ID against expected.
             obtained_id = trace_obj['branch_or_end_points'][ins_address]['id']
             if obtained_id not in self.obtained_endpoints:
                 self.obtained_endpoints.append(
                     obtained_id
                 )
             self.num_obtained_endpoints = len(self.obtained_endpoints)
+            logging.debug(
+                'Expected endpoints: '
+                + str(self.expected_endpoints)
+                + ' obtained endpoints: '
+                + str(self.obtained_endpoints)
+            )
+            
+            # Process the COI.
             coi_name = end_point_obj[ins_address]
             memory_map = {
                 key:memory_map[key] 
@@ -227,7 +238,7 @@ class RegisterEvaluator:
                 register_object
             )
             if ins_address == None: break
-            start_point = register_object[ARM_REG_PC]
+            start_point = ins_address
             
         if self.num_expected_endpoints == self.num_obtained_endpoints:
             logging.debug('Obtained all expected endpoints for this trace.')
@@ -4032,6 +4043,14 @@ class RegisterEvaluator:
             trace_obj = trace_obj_list[0]
             if common_objs.bypass_all_conditional_checks == True:
                 return trace_obj
+                
+            logging.trace(
+                'Re-evaluating endpoints based on reachability '
+                + 'for trace object '
+                + str(trace_obj)
+                + ' and address '
+                + str(prev_address)
+            )
             address_obj = trace_obj['branch_or_end_points'][prev_address]
             branch_target = list(address_obj['branch_target'].keys())[0]
             expected_obj = address_obj['branch_target'][branch_target]
@@ -4039,7 +4058,13 @@ class RegisterEvaluator:
             expected_ids = self.get_endpoint_ids(expected_obj)
             for expected_id in expected_ids:
                 if expected_id not in self.obtained_endpoints:
-                    self.num_expected_endpoints -= 1
+                    if expected_id in self.expected_endpoints:
+                        self.expected_endpoints.remove(expected_id)
+            self.num_expected_endpoints = len(self.expected_endpoints)
+            logging.debug(
+                'Re-evaluated expected endpoints: '
+                + str(self.expected_endpoints)
+            )
         return trace_obj
 
     def generate_return_trace_obj(self, json_tree, branchpoint, trace_obj, output_list):
