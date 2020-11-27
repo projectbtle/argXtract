@@ -398,6 +398,8 @@ class RegisterEvaluator:
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None:
                 should_update_pc_value = True
+            elif insn.id == ARM_INS_INVALID:
+                should_update_pc_value = True
             elif len(insn.operands) == 0:
                 should_update_pc_value = True
             else:

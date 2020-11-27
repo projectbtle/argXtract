@@ -14,8 +14,9 @@ def id_function_block_for_instruction(ins_address):
     function_block_starts.sort()
     if ins_address in function_block_starts:
         return ins_address
-        
-    closest = function_block_starts[min(range(len(function_block_starts)),
+    
+    len_function_starts = len(function_block_starts)        
+    closest = function_block_starts[min(range(len_function_starts),
         key = lambda i: abs(function_block_starts[i]-ins_address))]
         
     if closest <= ins_address:

@@ -684,7 +684,7 @@ class FirmwareDisassembler:
         if len(ldr_operands) == 3:
             post_index_reg = ldr_operands[2]
                 
-        logging.debug('Tracing for PC switch.')
+        logging.debug('Tracing for PC switch at ' + hex(ins_address))
         ldr_trace_end = utils.get_previous_address(all_addresses, ldr_address)
         for i in range(num_entries):
             logging.trace('Tracing for PC switch LDRs with index ' + str(i))
@@ -905,7 +905,10 @@ class FirmwareDisassembler:
 
         if cbranch_condition in [ARM_CC_HS]:
             comp_value -= 1
-        
+            
+        if cbranch >= ins_address:
+            comp_value = None
+
         return (comp_value, comp_reg, comp_address, cbranch, cbranch_condition)
         
     def mark_table_as_data(self, data_start_address, next_nondata, struct_name):
