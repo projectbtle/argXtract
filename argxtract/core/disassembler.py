@@ -815,6 +815,8 @@ class FirmwareDisassembler:
             comp_value
         common_objs.table_branches[ins_address]['comparison_address'] = \
             comp_address
+        common_objs.table_branches[ins_address]['comparison_register'] = \
+            comp_reg
         common_objs.table_branches[ins_address]['branch_address'] = \
             cbranch
         common_objs.table_branches[ins_address]['branch_condition'] = \
