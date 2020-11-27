@@ -892,9 +892,11 @@ class FirmwareDisassembler:
             return (None, None, None, None, None)
             
         cbranch = comp_address
+        cbranch_address = None
         cbranch_condition = None
-        while cbranch < ins_address:
+        while cbranch <= ins_address:
             cbranch += 2
+            if cbranch == ins_address: break
             if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
                 continue
             if common_objs.disassembled_firmware[cbranch]['insn'] == None:
@@ -902,8 +904,10 @@ class FirmwareDisassembler:
             branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
             if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
                 continue
+            cbranch_address = cbranch
+            if branch_insn.cc in [ARM_CC_AL, ARM_CC_INVALID]:
+                continue
             cbranch_condition = branch_insn.cc
-            break
 
         if cbranch_condition in [ARM_CC_HS]:
             comp_value -= 1
@@ -911,7 +915,7 @@ class FirmwareDisassembler:
         if cbranch >= ins_address:
             comp_value = None
 
-        return (comp_value, comp_reg, comp_address, cbranch, cbranch_condition)
+        return (comp_value, comp_reg, comp_address, cbranch_address, cbranch_condition)
         
     def mark_table_as_data(self, data_start_address, next_nondata, struct_name):
         original_bytes = None
