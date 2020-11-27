@@ -142,7 +142,14 @@ class FunctionPatternMatcher:
             logging.warning('More than one pattern match for ' + pattern_file)
             return None
             
-        return matches[0]
+        match = matches[0]
+        logging.debug(
+            'Function at '
+            + hex(match)
+            + ' matches '
+            + pattern_file
+        )
+        return match
         
     def match_function_to_pattern(self, start_address, pattern_insn_object,
             pattern_sections, pattern_registers):
