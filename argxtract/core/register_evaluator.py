@@ -211,7 +211,7 @@ class RegisterEvaluator:
                 + '\nregisters: '
                 + self.print_memory(register_object)
             )
-            input()
+            
             # Process the output and get updated memory map.
             memory_map = self.coi_processor.process_trace_output(
                 {coi_name:out_obj}
