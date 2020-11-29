@@ -79,6 +79,9 @@ class FirmwareAnalyser:
         # Get application code base.
         self.disassembler.estimate_app_code_base()
         
+        # Get vector table size.
+        self.disassembler.estimate_vector_table_size()
+        
         # Run vendor-specific tests and set binary/chipset-specific variables.
         vendor_match = self.chipset_analyser.test_binary_against_vendor()
         if vendor_match != True:
@@ -221,6 +224,8 @@ class FirmwareAnalyser:
         common_objs.disassembly_start_address = 0x00000000
         common_objs.code_start_address = 0x00000000
         common_objs.code_end_address = 0x00000000
+        common_objs.data_segment_start_address = 0x00000000
+        common_objs.data_segment_start_firmware_address = 0x00000000
         common_objs.flash_length = 0x00000000
         common_objs.ram_base = 0x00000000
         common_objs.ram_length = 0x00000000

@@ -90,7 +90,7 @@ class FirmwareDisassembler:
             
         common_objs.app_code_base = app_code_base
         common_objs.disassembly_start_address = common_objs.app_code_base
-        common_objs.code_start_address = common_objs.app_code_base + (4*15)
+        
         # Populate self-targeting branches, with app code base offset)
         for self_targeting_branch in self_targeting_branches:
             common_objs.self_targeting_branches.append(
@@ -211,6 +211,41 @@ class FirmwareDisassembler:
         common_objs.disassembled_firmware = {}
         return self_targeting_branches
         
+    def estimate_vector_table_size(self):
+        # At a minimum, the vector table will have 16 entries
+        vector_table_size = (4*16)
+        file_size_in_bytes = os.stat(common_paths.path_to_fw).st_size
+        address_min = vector_table_size
+        address_max = common_objs.app_code_base + file_size_in_bytes
+        image_file = open(common_paths.path_to_fw, 'rb')
+        
+        address = vector_table_size
+        is_code = False
+        while (is_code == False):
+            if address >= 1024: break
+            
+            image_file.seek(0)
+            image_file.seek(address)
+            entry = struct.unpack('<I', image_file.read(4))[0]
+            if ((entry == 0) or (entry == 65535)):
+                address += 32
+                continue
+            relative_entry = entry - 1 - common_objs.app_code_base
+            if relative_entry%2 == 0:
+                if ((relative_entry >= address_min) 
+                        and (relative_entry < address_max)):
+                    address += 32
+                    continue
+            break
+
+        vector_table_size = address   
+        logging.info(
+            'Vector table size computed as ' 
+            + hex(vector_table_size)
+        )
+        common_objs.code_start_address = \
+            common_objs.app_code_base + vector_table_size
+    
     def create_disassembled_object(self, store=True):
         disassembled_fw = self.disassemble_fw()
 
@@ -422,6 +457,14 @@ class FirmwareDisassembler:
             if insn.id in [ARM_INS_LDR, ARM_INS_ADD, ARM_INS_MOV, 
                     ARM_INS_MOVT, ARM_INS_MOVW]:
                 if insn.operands[0].value.reg == ARM_REG_PC:
+                    if insn.operands[1].type == ARM_OP_REG:
+                        src_reg = insn.operands[1].value.reg
+                        if src_reg in [ARM_REG_LR, ARM_REG_SP]:
+                            continue
+                    elif insn.operands[1].type == ARM_OP_MEM:
+                        src_reg = insn.operands[1].value.mem.base
+                        if src_reg in [ARM_REG_LR, ARM_REG_SP]:
+                            continue
                     ins_address = self.handle_data_pc(ins_address)
                     continue
             
@@ -505,6 +548,21 @@ class FirmwareDisassembler:
             ins_address += len(insn.bytes)
             return ins_address
             
+        logging.trace(
+            'GNU switch table at: '
+            + hex(ins_address)
+            + '. Comp value: '
+            + str(comp_value)
+            + '; comp register: '
+            + str(comp_reg)
+            + '; comp address: '
+            + hex(comp_address)
+            + '; comp branch address: '
+            + hex(cbranch)
+            + '; comp branch condition: '
+            + str(cbranch_condition)
+        )
+        
         if ins_address not in common_objs.replace_functions:
             common_objs.replace_functions[ins_address] = {
                 'type': consts.FN_GNUTHUMBCALL
@@ -625,6 +683,21 @@ class FirmwareDisassembler:
             ins_address += len(insn.bytes)
             return ins_address
             
+        logging.trace(
+            'PC switch table at: '
+            + hex(ins_address)
+            + '. Comp value: '
+            + str(comp_value)
+            + '; comp register: '
+            + str(comp_reg)
+            + '; comp address: '
+            + hex(comp_address)
+            + '; comp branch address: '
+            + hex(cbranch)
+            + '; comp branch condition: '
+            + str(cbranch_condition)
+        )
+        
         num_entries = (comp_value + 1)
         
         all_addresses = list(common_objs.disassembled_firmware.keys())
@@ -671,7 +744,10 @@ class FirmwareDisassembler:
         ldr_operands = ldr_insn.operands
         base_register = ldr_operands[1].value.mem.base
         if base_register in [ARM_REG_LR, ARM_REG_SP]:
-            logging.error('Unsupported PC switch.')
+            logging.warning(
+                'Unsupported PC switch (LR/SP) at ' 
+                + hex(ins_address)
+            )
             ins_address = utils.get_next_address(all_addresses, ins_address)
             return ins_address
             
@@ -801,9 +877,28 @@ class FirmwareDisassembler:
         (comp_value, comp_reg, comp_address, cbranch, cbranch_condition) = \
             self.get_preceding_comparison_branch(ins_address)
         if comp_value == None:
+            logging.trace(
+                'Comp value returned None for table branch at :'
+                + hex(ins_address)
+            )
             ins_address += len(insn.bytes)
             return ins_address
 
+        logging.trace(
+            'Table branch switch table at: '
+            + hex(ins_address)
+            + '. Comp value: '
+            + str(comp_value)
+            + '; comp register: '
+            + str(comp_reg)
+            + '; comp address: '
+            + hex(comp_address)
+            + '; comp branch address: '
+            + hex(cbranch)
+            + '; comp branch condition: '
+            + str(cbranch_condition)
+        )
+        
         comparison_reg = index_register
         if comparison_reg != comp_reg:
             ins_address += len(insn.bytes)
@@ -894,7 +989,7 @@ class FirmwareDisassembler:
         cbranch = comp_address
         cbranch_address = None
         cbranch_condition = None
-        while cbranch <= ins_address:
+        while cbranch < (ins_address-2):
             cbranch += 2
             if cbranch == ins_address: break
             if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
@@ -912,7 +1007,7 @@ class FirmwareDisassembler:
         if cbranch_condition in [ARM_CC_HS]:
             comp_value -= 1
             
-        if cbranch >= ins_address:
+        if cbranch_address == None:
             comp_value = None
 
         return (comp_value, comp_reg, comp_address, cbranch_address, cbranch_condition)
@@ -1320,6 +1415,8 @@ class FirmwareDisassembler:
                         'Possible start address for .data: ' 
                         + hex(ldr_value)
                     )
+            if ((data_start_firmware_address != '') and (data_start_real_address != '')):
+                break
         if data_start_firmware_address == '':
             return
         if data_start_real_address == '':
@@ -1334,6 +1431,8 @@ class FirmwareDisassembler:
         data_region = {}
         fw_address = data_start_firmware_address
         real_address = data_start_real_address
+        common_objs.data_segment_start_address = real_address
+        common_objs.data_segment_start_firmware_address = fw_address
         while fw_address <= last_address:
             if real_address % 4 == 0:
                 data_region_value = \
