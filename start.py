@@ -30,8 +30,8 @@ class argxtract:
     def set_args(self):
         self.argparser = argparse.ArgumentParser(
             description = 'argxtract enables testing stripped IoT firmware '
-                          + 'files to enumerate services and characteristics, '
-                          + ' and identify characteristic protection levels.',
+                          + 'files to extract arguments to configuration constructs '
+                          + ' (such as Supervisor Calls or function calls).',
             epilog = 'Note that this tool has only been '
                      + 'tested with Python 3.7+. '
                      + 'It will not work with lower versions.\n'

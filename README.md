@@ -18,8 +18,7 @@ Even though the tracing and value analysis functionalities are generic, `argXtra
 usage: start.py [-h] (-d DIRECTORY | -f FILE | -l LIST) [-c [{c,e,w,i,d,t}]] [-b] [-t TIME] [-m MAX_CALL_DEPTH] -M
                 [{s,f}] [-v VENDOR] [-p PROCESSES]]
 
-argxtract enables testing stripped IoT firmware files to enumerate services and characteristics, and identify characteristic
-protection levels.
+argxtract enables testing stripped IoT firmware files to extract arguments to configuration constructs (such as Supervisor Calls or function calls).
 
 optional arguments:
   -h, --help            show this help message and exit
