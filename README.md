@@ -45,3 +45,62 @@ optional arguments:
 
 ## Output
 An individual JSON file is generated per analysed file, and all such output JSONs are placed within the `output` directory. The SHA256 hash of the file is used as the name for the output file.
+
+The structure of the output file is as below:
+```
+{
+    "filepath": <>,
+    "output": {...},
+    "cois": [
+        "coi1",
+        "coi2"
+    ],
+    "unhandled": <any arguments encountered during trace that are not handled by argxtract>,
+    "analysis_time": <in seconds>
+}
+```
+
+## Example
+Considering the `sd_ble_opt_set` SVCall, which enables setting a fixed passkey, we would specify the argument definition file as below:
+```
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "length": 4,
+            "data": {
+                "opt_id": {
+                    "ptr_val": "value",
+                    "length_bits": 32,
+                    "type": "uint32"
+                }
+            }
+        },
+        "1": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "length": 6,
+            "data": {
+                "p_opt": {
+                    "ptr_val": "pointer",
+                    "length_bits": 48,
+                    "type": "hex"
+                }
+            }
+        }
+    }
+}
+```
+
+A binary file that contained a call to this SVC (e.g., with a fixed passkey of 123456) would contain within its output:
+```
+ "output": {
+    "sd_ble_opt_set": [
+        {
+            "opt_id": 34,
+            "p_opt": "313233343536"
+        }
+    ]
+ }
+```
