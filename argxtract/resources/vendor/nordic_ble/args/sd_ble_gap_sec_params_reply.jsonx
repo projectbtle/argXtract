@@ -10,9 +10,7 @@
                     "length_bits": 16,
                     "type": "hex"
                 }
-            },
-            "dtype": "hex",
-            "ntype": "uint16_t"
+            }
         },
         "1": {
             "in_out": "in",
@@ -24,8 +22,7 @@
                     "length_bits": 8,
                     "type": "hex"
                 }
-            },
-            "ntype": "uint8_t"
+            }
         },
         "2": {
             "in_out": "in",
@@ -152,9 +149,7 @@
                         }
                     }
                 }
-            },
-            "dtype": "hex",
-            "ntype": "ble_gap_sec_params_t"
+            }
         }
     }
 }
