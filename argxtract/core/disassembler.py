@@ -239,6 +239,7 @@ class FirmwareDisassembler:
             break
 
         vector_table_size = address   
+        common_objs.vector_table_size = vector_table_size
         logging.info(
             'Vector table size computed as ' 
             + hex(vector_table_size)

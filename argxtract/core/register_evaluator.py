@@ -4044,7 +4044,7 @@ class RegisterEvaluator:
             if common_objs.bypass_all_conditional_checks == True:
                 return trace_obj
                 
-            logging.trace(
+            logging.debug(
                 'Re-evaluating endpoints based on reachability '
                 + 'for trace object '
                 + str(trace_obj)

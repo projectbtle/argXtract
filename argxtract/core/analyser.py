@@ -23,7 +23,7 @@ class FirmwareAnalyser:
         common_objs.max_call_depth = max_call_depth
         common_objs.null_value_handling = null_handling
         common_objs.bypass_all_conditional_checks = bypass
-        
+
         logging.getLogger().setLevel(loglevel)
         self.set_paths(process_id)
 
