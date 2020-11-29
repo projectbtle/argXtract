@@ -615,6 +615,7 @@ class FunctionEvaluator:
                 possible_memsets
             )
         if len(possible_memsets) == 0:
+            logging.warning('No candidates for memset.')
             return (None, None, None)
         if len(possible_memsets) > 1: 
             for possible_memset in possible_memsets:
@@ -667,6 +668,14 @@ class FunctionEvaluator:
     def check_for_memset(self, start_address, end_address, registers):
         is_memset = False
         fixed_value = None
+        
+        # Preliminary checks (if any of the input registers are overwritten
+        #  in the first instruction, then it can't be the function we want.
+        first_ins = common_objs.disassembled_firmware[start_address]['insn']
+        if (first_ins.id in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]):
+            if first_ins.operands[0].value.reg in registers:
+                return (False, None, None)
+                
         address = start_address
         end_address = utils.id_function_block_end(start_address)
         # Prelim checks. STRB, CMP (or conditional branch) must be present.
