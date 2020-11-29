@@ -29,7 +29,7 @@ class argxtract:
         
     def set_args(self):
         self.argparser = argparse.ArgumentParser(
-            description = 'argxtract enables testing Nordic firmware '
+            description = 'argxtract enables testing stripped IoT firmware '
                           + 'files to enumerate services and characteristics, '
                           + ' and identify characteristic protection levels.',
             epilog = 'Note that this tool has only been '
