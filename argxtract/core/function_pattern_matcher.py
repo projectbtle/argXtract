@@ -139,7 +139,12 @@ class FunctionPatternMatcher:
             return None
         
         if len(matches) > 1:
-            logging.warning('More than one pattern match for ' + pattern_file)
+            logging.warning(
+                'More than one pattern match for ' 
+                + pattern_file
+                + ': '
+                + str(matches)
+            )
             return None
             
         match = matches[0]
@@ -379,17 +384,22 @@ class FunctionPatternMatcher:
                 'dst_reg': None,
                 'dst_val': None
             }
+            if function_object[address]['is_data'] == True: continue
             insn = function_object[address]['insn']
             if insn == None: continue
+            if insn.id == ARM_INS_INVALID: continue
             operands = insn.operands
             
             new_path[address]['opcode'] = insn.id
             
             # Some instructions need not be analysed.
             if (insn.id in [ARM_INS_PUSH, ARM_INS_POP, ARM_INS_B, ARM_INS_BL,
-                    ARM_INS_BX]):
+                    ARM_INS_BX, ARM_INS_INVALID]):
                 continue
             
+            if len(operands) == 0:
+                continue
+                
             new_path[address]['dst_reg'] = operands[0].value.reg
             
             # With STR, we only care about the source register 
@@ -399,6 +409,9 @@ class FunctionPatternMatcher:
                     ARM_INS_STREXB, ARM_INS_STREXH, ARM_INS_STRH]):
                 continue
 
+            if len(operands) < 2:
+                continue
+                
             if (insn.id in [ARM_INS_MOV, ARM_INS_MOVW]):
                 if operands[1].type == ARM_OP_REG:
                     new_path[address]['dst_val'] = regs[operands[1].value.reg]
@@ -426,11 +439,11 @@ class FunctionPatternMatcher:
                     if operand.type == ARM_OP_REG:
                         if operand.value.reg == new_path[address]['dst_reg']:
                             continue
-                        elif regs[operand.value.reg] in dst_value:
-                            continue
                         if dst_value == None:
                             dst_value = regs[operand.value.reg]
                         else:
+                            if regs[operand.value.reg] in dst_value:
+                                continue
                             dst_value = 'proc'
                     elif operand.type == ARM_OP_IMM:
                         if dst_value == None:
@@ -515,42 +528,50 @@ class FunctionPatternMatcher:
             address = utils.get_next_address(all_addresses, address)
             if address == None: break
             insn = function_object[address]['insn']
-            if insn != None:
-                operands = insn.operands
-                if insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
-                    branch_target = operands[1].value.imm
-                    if ((branch_target < function_start) 
-                            or (branch_target > function_end)):
-                        return sections
-                    branch_identified = True
-                    sections['branch']['address'].append(address)
-                    sections['branch']['value'] = 0
-                    if insn.id == ARM_INS_CBZ:
-                        sections['branch']['condition'] = ARM_CC_EQ
-                    else:
-                        sections['branch']['condition'] = ARM_CC_NE
-                elif (insn.id in [ARM_INS_CMN, 
-                        ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]):
-                    orig_address = address
-                    address = \
-                        utils.get_next_address(all_addresses, address)
-                    branch_insn = \
-                        function_object[address]['insn']
-                    branch_operands = branch_insn.operands
-                    if branch_insn == None:
-                        return sections
-                    if ((branch_insn.id != ARM_INS_B) 
-                            or (branch_insn.cc == ARM_CC_AL) 
-                            or (branch_insn.cc == ARM_CC_INVALID)):
-                        return sections
-                    branch_target = branch_operands[0].value.imm
-                    if ((branch_target < function_start) 
-                            or (branch_target > function_end)):
-                        return sections
-                    sections['branch']['address'].append(orig_address)
-                    sections['branch']['address'].append(address)
-                    sections['branch']['condition'] = branch_insn.cc
-                    branch_identified = True
+            if insn == None:
+                address = utils.get_next_address(all_addresses, address)
+                if address == None: break
+                continue
+            if insn.id == ARM_INS_INVALID:
+                address = utils.get_next_address(all_addresses, address)
+                if address == None: break
+                continue
+
+            operands = insn.operands
+            if insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
+                branch_target = operands[1].value.imm
+                if ((branch_target < function_start) 
+                        or (branch_target > function_end)):
+                    return sections
+                branch_identified = True
+                sections['branch']['address'].append(address)
+                sections['branch']['value'] = 0
+                if insn.id == ARM_INS_CBZ:
+                    sections['branch']['condition'] = ARM_CC_EQ
+                else:
+                    sections['branch']['condition'] = ARM_CC_NE
+            elif (insn.id in [ARM_INS_CMN, 
+                    ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]):
+                orig_address = address
+                address = \
+                    utils.get_next_address(all_addresses, address)
+                branch_insn = \
+                    function_object[address]['insn']
+                if branch_insn == None:
+                    return sections
+                if ((branch_insn.id != ARM_INS_B) 
+                        or (branch_insn.cc == ARM_CC_AL) 
+                        or (branch_insn.cc == ARM_CC_INVALID)):
+                    return sections
+                branch_operands = branch_insn.operands
+                branch_target = branch_operands[0].value.imm
+                if ((branch_target < function_start) 
+                        or (branch_target > function_end)):
+                    return sections
+                sections['branch']['address'].append(orig_address)
+                sections['branch']['address'].append(address)
+                sections['branch']['condition'] = branch_insn.cc
+                branch_identified = True
             if branch_identified == False:
                 sections['pre-branch'].append(address)
             else:
@@ -636,7 +657,7 @@ class FunctionPatternMatcher:
             
             # Some instructions don't have or shouldn't
             #  impact the registers.
-            if insn.id in [ARM_INS_B, ARM_INS_BL]:
+            if insn.id in [ARM_INS_B, ARM_INS_BL, ARM_INS_INVALID]:
                 continue
             if insn.id in [ARM_INS_MOV, ARM_INS_MOVW]:
                 if insn.operands[0].value.reg == insn.operands[1].value.reg:
@@ -671,6 +692,9 @@ class FunctionPatternMatcher:
                     non_input_regs,
                     cmp_regs
                 )
+                continue
+
+            if len(operands) == 0:
                 continue
 
             # Apart from special instructions, we take 0th operand to be 
@@ -812,8 +836,13 @@ class FunctionPatternMatcher:
     
     def compare_function_path_with_pattern(self, function_path, pattern_path,
             pattern_insn_object):
-        
-        # We only look for key instructions.
+        logging.debug(
+            'Function path with equivalent registers: ' 
+            + str(function_path)
+            + '. Pattern path with equivalent registers: '
+            + str(pattern_path)
+        )
+        # We first look for key instructions.
         address_matches = []
         address_mismatches = []
         for p_address in pattern_path:
@@ -837,6 +866,34 @@ class FunctionPatternMatcher:
             logging.debug('Pattern mismatches identified.')
             return False
             
-        # Normally register R0 contains an output code.
+        # Consider final values of registers.
+        p_regs = {}
+        for p_address in pattern_path:
+            pattern_obj = pattern_path[p_address]
+            pattern_insn = pattern_obj['opcode']
+            if pattern_insn in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]:
+                continue
+            p_regs[pattern_obj['dst_reg']] = pattern_obj['dst_val']
+        f_regs = {}
+        for f_address in function_path:
+            function_obj = function_path[f_address]
+            function_insn = function_obj['opcode']
+            if function_insn in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]:
+                continue
+            f_regs[function_obj['dst_reg']] = function_obj['dst_val']
+            
+        logging.debug(
+            'Final register values for pattern: '
+            + str(p_regs)
+            + ' and for function: '
+            + str(f_regs)
+        )
+        # Register r0 typically contains an output code.
+        # But what if it returns void?
+        if ARM_REG_R0 in list(p_regs.keys()):
+            if ARM_REG_R0 not in list(f_regs.keys()):
+                return False
+            if p_regs[ARM_REG_R0] != f_regs[ARM_REG_R0]:
+                return False
         
         return True
