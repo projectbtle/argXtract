@@ -28,6 +28,9 @@ class RegisterEvaluator:
         
         logging.debug('Trace object:\n' + json.dumps(trace_obj, indent=4))
         
+        # Start the timer.
+        self.start_time = timeit.default_timer()
+            
         self.coi_processor = coi_processor_instance
         self.master_trace_obj = trace_obj
         
@@ -97,9 +100,6 @@ class RegisterEvaluator:
             
             self.checked_paths[hex(start_point)] = {}
             current_path = hex(start_point)
-
-            # Start the timer.
-            self.start_time = timeit.default_timer()
             
             # Add item to queue.
             self.add_to_trace_queue(
@@ -211,7 +211,7 @@ class RegisterEvaluator:
                 + '\nregisters: '
                 + self.print_memory(register_object)
             )
-
+            input()
             # Process the output and get updated memory map.
             memory_map = self.coi_processor.process_trace_output(
                 {coi_name:out_obj}
@@ -4261,7 +4261,7 @@ class RegisterEvaluator:
         # DATA
         data_region = list(common_objs.data_region.keys())
         data_region.sort()
-        if len(data_region) > 1:
+        if len(data_region) > 0:
             start_data_region = data_region[0]
             end_data_region = data_region[-1]
             if ((address >= start_data_region) 
@@ -4344,58 +4344,21 @@ class RegisterEvaluator:
             + ' starting at memory address '
             + hex(address)
         )
-        remaining_bytes = num_bytes
-        value = ''
-        while remaining_bytes > 0:
-            if remaining_bytes >= 4:
-                obtained_bytes = 4
-                if address not in common_objs.data_region:
-                    first_half = address - 2
-                    second_half = address + 2
-                    if first_half not in common_objs.data_region:
-                        return None
-                    if second_half not in common_objs.data_region:
-                        return None
-                    first_half_data = common_objs.data_region[first_half][4:]
-                    second_half_data = common_objs.data_region[second_half][0:4]
-                    data = first_half_data + second_half_data
-                else:
-                    data = common_objs.data_region[address]
-            elif (remaining_bytes >= 2):
-                obtained_bytes = 2
-                if address not in common_objs.data_region:
-                    address = address - 2
-                    if address not in common_objs.data_region:
-                        return None
-                    data = common_objs.data_region[address]
-                    data = data[4:]
-                else:
-                    data = common_objs.data_region[address]
-                    data = data[0:4]
-            elif (remaining_bytes == 1):
-                obtained_bytes = 1
-                if address not in common_objs.data_region:
-                    address = address -1
-                    if address not in common_objs.data_region:
-                        address = address -1
-                        if address not in common_objs.data_region:
-                            address = address -1
-                            if address not in common_objs.data_region:
-                                return None
-                            data = common_objs.data_region[address]
-                            data = data[6:]
-                        else:
-                            data = common_objs.data_region[address]
-                            data = data[4:]
-                    else:
-                        data = common_objs.data_region[address]
-                        data = data[2:]
-                else:
-                    data = common_objs.data_region[address]
-                    data = data[0:2]
-            value += data
-            remaining_bytes -= obtained_bytes
-            address += obtained_bytes
+        offset = address - common_objs.data_segment_start_address
+        address_in_firmware = \
+            common_objs.data_segment_start_firmware_address + offset
+        logging.debug(
+            'Address '
+            + hex(address)
+            + ' translates to '
+            + hex(address_in_firmware)
+            + ' in firmware.'
+        )
+        value = utils.get_firmware_bytes(
+                    address_in_firmware, 
+                    num_bytes,
+                    endian='big'
+                )
         if endian == 'little':
             value = utils.reverse_bytes(utils.convert_type(value, 'bytes'))
             value = utils.convert_type(value, 'hex')
@@ -4403,6 +4366,7 @@ class RegisterEvaluator:
         # Type conversion.
         value = utils.convert_type(value, dtype)
         return value
+        
 
     def get_memory_bytes(self, memory_map, address, num_bytes=4, dtype='hex', 
                             unprocessed=False, endian=common_objs.endian):
