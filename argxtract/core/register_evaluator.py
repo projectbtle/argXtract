@@ -27,7 +27,7 @@ class RegisterEvaluator:
         logging.info('Starting register trace.')
         
         logging.debug('Trace object:\n' + json.dumps(trace_obj, indent=4))
-        
+
         # Start the timer.
         self.start_time = timeit.default_timer()
             
@@ -54,6 +54,10 @@ class RegisterEvaluator:
             int(common_objs.application_vector_table['initial_sp'])
 
         for start_point in start_points:
+            if self.time_check() == True:
+                logging.info('Timeout.')
+                break
+                
             logging.debug('Start point: ' + hex(start_point))
             
             self.expected_endpoints = []
@@ -4684,6 +4688,7 @@ class RegisterEvaluator:
         """Call queue handler as long as queue not empty and time available. """
         while ((self.instruction_queue) and (self.time_check()!=True)):
             if self.num_obtained_endpoints == self.num_expected_endpoints:
+                logging.debug('Obtained the required endpoints')
                 return
             self.handle_queue()
 

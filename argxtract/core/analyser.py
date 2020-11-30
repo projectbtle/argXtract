@@ -54,7 +54,6 @@ class FirmwareAnalyser:
         logging.info(
             'Checking file: "'
             + path_to_fw
-            + '".\n'
         )
         
         # Does file even exist?

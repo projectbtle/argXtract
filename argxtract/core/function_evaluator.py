@@ -340,7 +340,7 @@ class FunctionEvaluator:
                     if overrun < function_block_start_addresses[i]:
                         break
                         
-                idx = i
+                idx = i-1
                 
                 (new_function_blocks, overrun) = self.analyse_function_block_for_exit_ins(
                     fblock_start,
