@@ -160,52 +160,34 @@ class FirmwareDisassembler:
                     continue
                 if prev_insn.id != ARM_INS_LDR:
                     continue
-                curr_pc_value = self.get_mem_access_pc_value(ins_address-2)
+                ldr_address = ins_address-2
+                curr_pc_value = self.get_mem_access_pc_value(ldr_address)
                 ldr_target = curr_pc_value + prev_insn.operands[1].mem.disp
-                if ldr_target not in common_objs.disassembled_firmware:
-                    if ins_address not in common_objs.errored_instructions:
-                        common_objs.errored_instructions.append(ins_address)
-                        logging.trace(
-                            'LDR target ('
-                            + hex(ldr_target)
-                            + ') is not present in disassembled firmware '
-                            + 'for LDR call at '
-                            + hex(ins_address)
-                            + '. Adding to errored instructions.'
-                        )
-                    continue
-                if (abs(ldr_target-ins_address) > 4096):
-                    if ins_address not in common_objs.errored_instructions:
-                        common_objs.errored_instructions.append(ins_address)
+                if (abs(ldr_target-ldr_address) > 4096):
+                    if ldr_address not in common_objs.errored_instructions:
+                        common_objs.errored_instructions.append(ldr_address)
                         logging.trace(
                             'LDR target ('
                             + hex(ldr_target)
                             + ') is at an offset greater than 4096 '
                             + 'for LDR call at '
-                            + hex(ins_address)
+                            + hex(ldr_address)
                             + '. Adding to errored instructions.'
                         )
                     continue
-                data_bytes = self.get_ldr_target_data_bytes(ldr_target)
-                if len(data_bytes) < 4:
-                    data_bytes = self.get_data_from_next_instruction(
-                        ins_address-2,
-                        ldr_target,
-                        data_bytes
-                    )
-                    if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
-                        if ins_address not in common_objs.errored_instructions:
-                            common_objs.errored_instructions.append(ins_address)
-                            logging.trace(
-                                'Unable to get LDR bytes '
-                                + 'for LDR call at '
-                                + hex(ins_address)
-                                + '. Adding to errored instructions.'
-                            )
-                        continue
-                ordered_bytes = struct.unpack('<I', data_bytes)[0]
+                data_bytes = self.get_ldr_target_data_bytes(ldr_target, 4)
+                if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
+                    if ldr_address not in common_objs.errored_instructions:
+                        common_objs.errored_instructions.append(ldr_address)
+                        logging.trace(
+                            'Unable to get data bytes for load instruction at '
+                            + hex(ldr_address)
+                            + '. Adding to errored instructions.'
+                        )
+                    continue
+                ordered_bytes = int(data_bytes, 16)
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
-                if target_branch == (ins_address-2):
+                if target_branch == ldr_address:
                     self_targeting_branches.append(hex(target_branch))
         self_targeting_branches.sort()       
         common_objs.disassembled_firmware = {}
@@ -812,7 +794,7 @@ class FirmwareDisassembler:
             common_objs.disassembled_firmware[src_memory_address]['insn'] = None
             if ldr_insn.id == ARM_INS_LDR:
                 common_objs.disassembled_firmware[src_memory_address+2]['is_data'] = True
-            common_objs.disassembled_firmware[src_memory_address+2]['insn'] = None
+                common_objs.disassembled_firmware[src_memory_address+2]['insn'] = None
             self.reg_eval = None
             
         # Everything needs to be re-initialised, so just do this separately.
@@ -1068,83 +1050,18 @@ class FirmwareDisassembler:
         ldr_target = curr_pc_value + operands[1].mem.disp
         if insn.id == ARM_INS_ADR:
             ldr_target = curr_pc_value + operands[1].value.imm
-        if ldr_target not in common_objs.disassembled_firmware:
+
+        outcome = self.process_data_addresses(ins_address, ldr_target, insn.id)
+        if outcome == consts.ERROR_INVALID_INSTRUCTION:
             if ins_address not in common_objs.errored_instructions:
                 common_objs.errored_instructions.append(ins_address)
                 logging.trace(
-                    'LDR/ADR target ('
-                    + hex(ldr_target)
-                    + ') is not present is disassembled firmware '
-                    + 'for call at '
+                    'Unable to load data bytes for LDR call at '
                     + hex(ins_address)
                     + '. Adding to errored instructions.'
                 )
             return ins_address
- 
-        # If we have already marked the data at the target address,
-        #  then we needn't process it again.
-        if common_objs.disassembled_firmware[ldr_target]['is_data'] == True:
-            return ins_address
-        
-        # Get data bytes at target address.
-        data_bytes = self.get_ldr_target_data_bytes(ldr_target)
-        if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
-            if ins_address not in common_objs.errored_instructions:
-                common_objs.errored_instructions.append(ins_address)
-                logging.trace(
-                    'Unable to get data bytes for load instruction at '
-                    + hex(ins_address)
-                    + '. Adding to errored instructions.'
-                )
-            return ins_address
-        
-        logging.debug(
-            'Marking '
-            + hex(ldr_target)
-            + ' as data called from '
-            + hex(ins_address)
-        )
-                
-        # Now that we know the target address contains data, 
-        #  not instructions, we set is_data to True, 
-        #  and nullify instruction.
-        common_objs.disassembled_firmware[ldr_target]['is_data'] = True
-        if (ldr_target+2) in common_objs.disassembled_firmware:
-            common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
-        common_objs.disassembled_firmware[ldr_target]['_insn'] = \
-            common_objs.disassembled_firmware[ldr_target]['insn']
-        common_objs.disassembled_firmware[ldr_target]['insn'] = None  
-        
-        if ((insn.id == ARM_INS_LDR) or (insn.id == ARM_INS_ADR)):
-            # If we don't have a 4-byte word, then we need to get remaining
-            #  bytes from next "instruction".
-            if len(data_bytes) < 4:
-                data_bytes = self.get_data_from_next_instruction(
-                    ins_address,
-                    ldr_target,
-                    data_bytes
-                )
-                if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
-                    if ins_address not in common_objs.errored_instructions:
-                        common_objs.errored_instructions.append(ins_address)
-                        logging.trace(
-                            'Unable to load data bytes for LDR call at '
-                            + hex(ins_address)
-                            + '. Adding to errored instructions.'
-                        )
-                    return ins_address
-            ordered_bytes = struct.unpack('<I', data_bytes)[0]
-            common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
-        elif insn.id in [ARM_INS_LDRH, ARM_INS_LDRSH]:
-            if len(data_bytes) == 2:
-                ordered_bytes = struct.unpack('<H', data_bytes)[0]
-            else:
-                logging.error('LDRH target does not have exactly two bytes.')
-                data_bytes = data_bytes[0:2]
-                ordered_bytes = struct.unpack('<H', data_bytes)[0]
-            common_objs.disassembled_firmware[ldr_target]['data'] = ordered_bytes
-        else:
-            return ins_address
+
         return ins_address
                 
     def handle_potential_byte_misinterpretation_errors(self):
@@ -1389,10 +1306,17 @@ class FirmwareDisassembler:
                 ldr_target = curr_pc_value + operands[1].mem.disp
                 ldr_value = utils.get_firmware_bytes(ldr_target, 4)
                 ldr_value = int(ldr_value, 16)
-                common_objs.disassembled_firmware[ldr_target]['is_data'] = True
-                if (ldr_target+2) in common_objs.disassembled_firmware:
-                    common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
-                common_objs.disassembled_firmware[ldr_target]['data'] = ldr_value
+                outcome = self.process_data_addresses(address, ldr_target, insn.id)
+                if outcome == consts.ERROR_INVALID_INSTRUCTION:
+                    if ldr_address not in common_objs.errored_instructions:
+                        common_objs.errored_instructions.append(ldr_address)
+                        logging.trace(
+                            'Unable to mark data bytes for load instruction at '
+                            + hex(ldr_address)
+                            + '. Adding to errored instructions.'
+                        )
+                    continue
+                    
                 if ldr_value in common_objs.disassembled_firmware:
                     if ldr_value < common_objs.code_start_address:
                         continue
@@ -1507,80 +1431,6 @@ class FirmwareDisassembler:
             potential_code_end -= 2
         if potential_code_end < common_objs.code_end_address:
             common_objs.code_end_address = potential_code_end
-
-    def get_data_from_next_instruction(self, ins_address, ldr_target, data_bytes):
-        if (ldr_target+2) not in common_objs.disassembled_firmware:
-            logging.error(
-                'Required 4 bytes not found. '
-                + 'See ldr target referenced from: '
-                + hex(ins_address)
-            )
-            return consts.ERROR_INVALID_INSTRUCTION
-            
-        # Get the next "instruction".
-        if common_objs.disassembled_firmware[ldr_target+2]['insn'] != None:
-            next_ins_bytes = \
-                common_objs.disassembled_firmware[ldr_target+2]['insn'].bytes
-        else:
-            if 'bytes' in common_objs.disassembled_firmware[ldr_target+2]:
-                next_ins_bytes = \
-                    common_objs.disassembled_firmware[ldr_target+2]['bytes']
-            else:
-                logging.warning(
-                    'No instruction or bytes found!!! '
-                    + 'See target referenced by instruction at address: '
-                    + hex(ins_address)
-                )
-                return consts.ERROR_INVALID_INSTRUCTION
-                
-        # If the next "instruction" contains only 2 bytes, then we only need
-        #  to concatenate them to existing data bytes.
-        if len(next_ins_bytes) == 2:
-            data_bytes += next_ins_bytes
-        # However, if next instruction contains 4 bytes, then we need to use two,
-        #  and push the other two to next address.
-        elif len(next_ins_bytes) == 4:
-            if (ldr_target+4) not in common_objs.disassembled_firmware:
-                logging.error(
-                    'Address '
-                    + hex(ldr_target+4)
-                    +' not found within firmware. '
-                    + 'See ldr target referenced from: '
-                    + hex(ins_address)
-                )
-                return consts.ERROR_INVALID_INSTRUCTION
-            data_bytes += next_ins_bytes[0:2]
-            
-            # We need to re-process the instruction.
-            new_insns = md.disasm(
-                next_ins_bytes[2:],
-                ldr_target+4
-            )
-            for new_insn in new_insns:
-                logging.debug(
-                    'Re-processing instruction at '
-                    + hex(new_insn.address)
-                )
-                common_objs.disassembled_firmware[new_insn.address] = {
-                    'insn': new_insn,
-                    'is_data': False
-                }
-            common_objs.disassembled_firmware[ldr_target+4]['bytes'] = \
-                next_ins_bytes[2:]
-        else:
-            logging.error(
-                'Required 4 bytes not found. '
-                + 'See ldr target referenced from: '
-                + hex(ins_address)
-            )
-            return consts.ERROR_INVALID_INSTRUCTION
-        
-        # Update firmware object.
-        common_objs.disassembled_firmware[ldr_target+2]['_insn'] = \
-            common_objs.disassembled_firmware[ldr_target+2]['insn']
-        common_objs.disassembled_firmware[ldr_target+2]['insn'] = None
-        
-        return data_bytes
         
     def check_valid_pc_ldr(self, ins_address):
         if ins_address not in common_objs.disassembled_firmware:
@@ -1606,21 +1456,71 @@ class FirmwareDisassembler:
             
         return True
             
-    def get_ldr_target_data_bytes(self, ldr_target):
-        if common_objs.disassembled_firmware[ldr_target]['insn'] != None:
-            data_bytes = common_objs.disassembled_firmware[ldr_target]['insn'].bytes 
-        else:
-            if 'bytes' in common_objs.disassembled_firmware[ldr_target]:
-                data_bytes = common_objs.disassembled_firmware[ldr_target]['bytes']
-            else:
-                logging.warning(
-                    'No instruction or bytes found!!! '
-                    + 'See target referenced by instruction at address: '
-                    + hex(ldr_target)
-                )
-                return consts.ERROR_INVALID_INSTRUCTION
+    def get_ldr_target_data_bytes(self, ldr_target, num_bytes):
+        try:
+            data_bytes = utils.get_firmware_bytes(ldr_target, num_bytes)
+        except:
+            return consts.ERROR_INVALID_INSTRUCTION
         return data_bytes
-                    
+    
+    def process_data_addresses(self, ins_address, ldr_target, opcode_id):
+        num_bytes = 1
+        if opcode_id in [ARM_INS_LDRH, ARM_INS_LDRSH]:
+            num_bytes = 2
+        elif opcode_id in [ARM_INS_LDR, ARM_INS_ADR]:
+            num_bytes = 4
+        if ((num_bytes == 1) and (ldr_target%2 == 1)):
+            ldr_target -= 1
+        if ldr_target%2 == 1:
+            return consts.ERROR_INVALID_INSTRUCTION
+        logging.debug(
+            'Marking '
+            + hex(ldr_target)
+            + ' as data called from '
+            + hex(ins_address)
+        )
+        if ldr_target not in common_objs.disassembled_firmware:
+            common_objs.disassembled_firmware[ldr_target] = {}
+        common_objs.disassembled_firmware[ldr_target]['is_data'] = True
+        common_objs.disassembled_firmware[ldr_target]['insn'] = None
+        if num_bytes <= 2:
+            return True
+        logging.debug(
+            'Marking '
+            + hex(ldr_target+2)
+            + ' as data called from '
+            + hex(ins_address)
+        )
+        if (ldr_target+2) not in common_objs.disassembled_firmware:
+            common_objs.disassembled_firmware[ldr_target+2] = {}
+        common_objs.disassembled_firmware[ldr_target+2]['is_data'] = True
+        common_objs.disassembled_firmware[ldr_target+2]['insn'] = None
+        # Now we need to re-process the next instruction,
+        #  but only if it doesn't already exist.
+        if (ldr_target+4) in common_objs.disassembled_firmware:
+            return True
+            
+        logging.debug(
+            'Re-processing instruction at '
+            + hex(ldr_target+4)
+        )
+        new_bytes = utils.get_firmware_bytes(ldr_target+4, 2)
+        new_bytes = bytes.fromhex(new_bytes)
+        new_insns = md.disasm(
+            new_bytes,
+            ldr_target+4
+        )
+        for new_insn in new_insns:
+            logging.debug(
+                'Re-processing instruction at '
+                + hex(new_insn.address)
+            )
+            common_objs.disassembled_firmware[new_insn.address] = {
+                'insn': new_insn,
+                'is_data': False
+            }
+        return True
+    
     def check_inline_address_instructions(self):
         logging.debug('Checking for presence of inline addresses.')
         all_addresses = list(common_objs.disassembled_firmware.keys())
@@ -1653,7 +1553,16 @@ class FirmwareDisassembler:
             # Target address is PC + offset.
             operands = insn.operands
             ldr_target = curr_pc_value + operands[1].mem.disp
-            ordered_bytes = int(utils.get_firmware_bytes(ldr_target, 4), 16)
+            target_bytes = utils.get_firmware_bytes(ldr_target, 4)
+            if target_bytes == '':
+                if ins_address not in common_objs.errored_instructions:
+                    common_objs.errored_instructions.append(ins_address)
+                logging.trace(
+                    'LDR bytes not present for LDR instruction at '
+                    + hex(ins_address)
+                )
+                continue
+            ordered_bytes = int(target_bytes, 16)
 
             # If it's an LDR instruction, then the bytes themselves may 
             #  represent an address within the instructions.
@@ -1694,9 +1603,11 @@ class FirmwareDisassembler:
                         + hex(ins_address)
                     )
                     common_objs.disassembled_firmware[inline_address]['is_data'] = True
-                    common_objs.disassembled_firmware[inline_address]['_insn'] = \
-                        common_objs.disassembled_firmware[inline_address]['insn']
                     common_objs.disassembled_firmware[inline_address]['insn'] = None
+                    if (inline_address+2) not in common_objs.disassembled_firmware:
+                        common_objs.disassembled_firmware[inline_address+2] = {}
+                    common_objs.disassembled_firmware[inline_address+2]['is_data'] = True
+                    common_objs.disassembled_firmware[inline_address+2]['insn'] = None
                     
     # ------------------------------------------------------
     def check_valid_branches(self, disassembled_fw):
