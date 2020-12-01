@@ -19,6 +19,7 @@ class argxtract:
         self.processes = 1
         self.bypass = False
         self.max_time = common_objs.max_time
+        self.per_trace_max_time = common_objs.per_trace_max_time
         self.max_call_depth = common_objs.max_call_depth
         self.null_handling = common_objs.null_value_handling
         self.core_file_list = []
@@ -83,7 +84,14 @@ class argxtract:
         )
         self.argparser.add_argument(
             '-t',
-            '--time',
+            '--time_per_trace',
+            type = int,
+            action = 'store',
+            help = 'maximum trace time per file, per start point in seconds.'
+        )
+        self.argparser.add_argument(
+            '-T',
+            '--Time',
             type = int,
             action = 'store',
             help = 'maximum trace time per file in seconds.'
@@ -215,9 +223,17 @@ class argxtract:
         if args.vendor:
             self.vendor = args.vendor
             
-        if args.time:
-            if args.time > 0:
-                self.max_time = args.time
+        if args.Time:
+            if args.Time > 0:
+                self.max_time = args.Time
+        else:
+            self.max_time = 0
+                
+        if args.time_per_trace:
+            if args.time_per_trace > 0:
+                self.per_trace_max_time = args.time_per_trace
+        else:
+            self.per_trace_max_time = 0
                 
         if args.max_call_depth:
             if args.max_call_depth > 0:
@@ -281,6 +297,7 @@ class argxtract:
             self.mode,
             self.vendor, 
             self.max_time,
+            self.per_trace_max_time,
             self.max_call_depth,
             self.loglevel,
             self.null_handling,
@@ -338,6 +355,7 @@ class argxtract:
                 self.mode,
                 self.vendor, 
                 self.max_time,
+                self.per_trace_max_time,
                 self.max_call_depth,
                 self.loglevel,
                 self.null_handling,
@@ -392,6 +410,7 @@ class argxtract:
                             self.mode,
                             self.vendor, 
                             self.max_time,
+                            self.per_trace_max_time,
                             self.max_call_depth,
                             self.loglevel,
                             self.null_handling,
@@ -421,12 +440,13 @@ class argxtract:
             
 
 class argxtractWorker:
-    def __init__(self, mode, vendor, max_time, max_call_depth, loglevel, 
-            null_handling, bypass):
+    def __init__(self, mode, vendor, max_time, per_trace_max_time, max_call_depth, 
+            loglevel, null_handling, bypass):
         self.mode = mode
         self.vendor = vendor
         self.bypass = bypass
         self.max_time = max_time
+        self.per_trace_max_time = per_trace_max_time
         self.max_call_depth = max_call_depth
         self.loglevel = loglevel
         self.null_handling = null_handling
@@ -437,6 +457,7 @@ class argxtractWorker:
             self.mode,
             self.vendor, 
             self.max_time,
+            self.per_trace_max_time,
             self.max_call_depth,
             self.loglevel,
             self.null_handling,

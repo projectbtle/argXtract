@@ -21,6 +21,7 @@ from argxtract.common import objects as common_objs
 
 class RegisterEvaluator:
     def __init__(self):
+        self.per_trace_start_time = None
         self.start_time = None
         
     def estimate_reg_values_for_trace_object(self, trace_obj, coi_processor_instance): 
@@ -54,11 +55,13 @@ class RegisterEvaluator:
             int(common_objs.application_vector_table['initial_sp'])
 
         for start_point in start_points:
-            if self.time_check() == True:
+            if self.total_time_check() == True:
                 logging.info('Timeout.')
                 break
                 
             logging.debug('Start point: ' + hex(start_point))
+            
+            self.per_trace_start_time = timeit.default_timer()
             
             self.expected_endpoints = []
             endpoint_addresses = self.get_endpoint_ids(
@@ -750,6 +753,10 @@ class RegisterEvaluator:
     def check_branch_condition_satisfied(self, opcode_id, instruction, flags,
                                             next_reg_values):
         if flags == None: return None
+        # To bypass conditional checks, we simply return None.
+        # This forces the conditional branch to execute both paths.
+        if common_objs.bypass_all_conditional_checks == True:
+            return None
         condition = instruction.cc
         operands = instruction.operands
         is_branch_condition_satisfied = None
@@ -4559,7 +4566,7 @@ class RegisterEvaluator:
         #  so process only if length is lower than a certain value.
         # We choose the length as the maximum length specified in 
         #  COI definitions.
-        if length > 64:
+        if length > 125:
             logging.debug(
                 'Over-large value for length '
                 + str(length)
@@ -4692,11 +4699,25 @@ class RegisterEvaluator:
                 return
             self.handle_queue()
 
+    def total_time_check(self):
+        if common_objs.max_time != 0:        
+            elapsed_time = timeit.default_timer() - self.start_time
+            if (elapsed_time >= common_objs.max_time):
+                return True
+        return False
+        
     def time_check(self):
         """Check if elapsed time is greater than max alowable runtime. """
-        elapsed_time = timeit.default_timer() - self.start_time
-        if(elapsed_time >= common_objs.max_time):
-            return True
+        if common_objs.per_trace_max_time != 0:
+            per_trace_elapsed_time = timeit.default_timer() - self.per_trace_start_time
+            if (per_trace_elapsed_time >= common_objs.per_trace_max_time):
+                return True
+        
+        if common_objs.max_time != 0:        
+            elapsed_time = timeit.default_timer() - self.start_time
+            if (elapsed_time >= common_objs.max_time):
+                return True
+        
         return False
         
     def handle_queue(self):
