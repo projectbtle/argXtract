@@ -242,45 +242,6 @@ class CoiProcessor:
         # Recursively check.
         for caller in callers:
             self.get_chain(caller, chain, output_list, fblock_list)
-           
-    def find_starting_point_from_chain(self, chain):
-        start_point = chain.split(',')[-1]
-        if start_point.strip() == '':
-            return None
-        return start_point 
-                
-    def find_starting_points_from_chains(self, store=True):
-        all_start_points = []
-        for coi_chain in common_objs.coi_chains:
-            start_point = coi_chain.split(',')[-1]
-            if start_point.strip() == '':
-                continue
-            all_start_points.append(start_point)
-            
-        start_points_by_freq = [item for items, c in 
-                                    Counter(all_start_points).most_common()
-                                      for item in [items] * c] 
-        all_start_points = None
-        ordered_start_points = []
-        for start_point in start_points_by_freq:
-            if start_point not in ordered_start_points:
-                ordered_start_points.append(start_point)
-        start_points_by_freq = None
-        
-        if len(ordered_start_points) == 0:
-            logging.info('No starting points identified.')
-            return ordered_start_points
-            
-        debug_msg = 'Ordered list of potential starting points ' \
-                    + '(ordered by frequency): \n'
-        for ordered_start_point in ordered_start_points:
-            debug_msg += '\t\t\t\t' + str(ordered_start_point) + '\n'
-        logging.debug(debug_msg)
-        
-        if store == True:
-            common_objs.potential_start_points = ordered_start_points
-        else:
-            return ordered_start_points
 
     def get_arg_files(self):
         arg_files = []
@@ -306,7 +267,7 @@ class CoiProcessor:
                     coi_chain,
                     coi_name
                 )
-        output_object = utils.order_dict(output_object)
+        #output_object = utils.order_dict(output_object)
         self.annotation_id = 0
         for key in output_object:
             output_object[key]['branch_or_end_points'] = \
@@ -351,7 +312,7 @@ class CoiProcessor:
                             dictionary[k]['branch_target'][branch]['branch_or_end_points']
                         )
             else:
-                dictionary[k]['id'] = str(self.annotation_id)
+                dictionary[k]['id'] = 'epid' + str(self.annotation_id)
                 self.annotation_id += 1
         return dictionary
         
