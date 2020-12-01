@@ -6,6 +6,7 @@ from argxtract.core import consts
 
 #============ Generic variables ============
 max_time = 300
+per_trace_max_time = 300
 mode = consts.MODE_SVC
 vendor = None
 endian = 'little'
