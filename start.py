@@ -255,6 +255,9 @@ class argxtract:
         if args.bypass:
             self.bypass = True
             
+        if ((self.max_time == 0) and (self.per_trace_max_time == 0)):
+            self.max_time = common_objs.max_time
+            
     def start_analysis(self):
         # Banner.
         print(
