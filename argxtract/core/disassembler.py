@@ -125,11 +125,9 @@ class FirmwareDisassembler:
         self_targeting_branches = []
         self.create_disassembled_object()
         for ins_address in common_objs.disassembled_firmware:
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
-                
             insn = common_objs.disassembled_firmware[ins_address]['insn']
-            if insn == None: continue
             opcode_id = insn.id
             
             # Check whether the opcode is for a branch instruction at all.
@@ -185,6 +183,15 @@ class FirmwareDisassembler:
                             + '. Adding to errored instructions.'
                         )
                     continue
+                if data_bytes == '':
+                    if ldr_address not in common_objs.errored_instructions:
+                        common_objs.errored_instructions.append(ldr_address)
+                        logging.trace(
+                            'Empty data bytes for load instruction at '
+                            + hex(ldr_address)
+                            + '. Adding to errored instructions.'
+                        )
+                    continue
                 ordered_bytes = int(data_bytes, 16)
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
                 if target_branch == ldr_address:
@@ -210,13 +217,13 @@ class FirmwareDisassembler:
             image_file.seek(address)
             entry = struct.unpack('<I', image_file.read(4))[0]
             if ((entry == 0) or (entry == 65535)):
-                address += 32
+                address += 4
                 continue
             relative_entry = entry - 1 - common_objs.app_code_base
             if relative_entry%2 == 0:
                 if ((relative_entry >= address_min) 
                         and (relative_entry < address_max)):
-                    address += 32
+                    address += 4
                     continue
             break
 
@@ -557,9 +564,7 @@ class FirmwareDisassembler:
         address = cbranch
         while address < ins_address:
             address += 2
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[address]['insn'] == None:
+            if utils.is_valid_code_address(address) != True:
                 continue
             mov_insn = common_objs.disassembled_firmware[address]['insn']
             if mov_insn.id not in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
@@ -747,28 +752,21 @@ class FirmwareDisassembler:
         ldr_trace_end = utils.get_previous_address(all_addresses, ldr_address)
         for i in range(num_entries):
             logging.trace('Tracing for PC switch LDRs with index ' + str(i))
-            self.reg_eval = RegisterEvaluator()
-            self.reg_eval.all_addresses = all_addresses
-            # Initialise parameters.
-            ## Initialise registers.
-            initialised_regs = {}
-            for reg in consts.REGISTERS:
-                initialised_regs[reg] = None
-            initialised_regs[ARM_REG_PC] = \
-                '{0:08x}'.format(self.reg_eval.get_pc_value(trace_start))
-            initialised_regs[comp_reg] = utils.convert_type(np.uint8(i), 'hex')
-            ## Initialise path.
-            current_path = hex(trace_start)
-            ## Initialise condition flags.
-            condition_flags = self.reg_eval.initialise_condition_flags()
+            (reg_eval_obj, init_regs, condition_flags, current_path) = \
+                self.initialise_objects_for_trace(
+                    all_addresses,
+                    trace_start, 
+                    comp_reg, 
+                    i
+                )
             
             # Trace LDR using register evaluator.
             (_, _, _, register_object) = \
-                self.reg_eval.trace_register_values(trace_start, [ldr_trace_end],   
-                    initialised_regs, {}, condition_flags, {}, 
+                reg_eval_obj.trace_register_values(trace_start, [ldr_trace_end],   
+                    init_regs, {}, condition_flags, {}, 
                     {}, current_path, {}, 0, True)
             (src_memory_address, _) = \
-                self.reg_eval.get_memory_address(
+                reg_eval_obj.get_memory_address(
                     register_object,
                     ldr_address,
                     ldr_operands[1],
@@ -795,36 +793,29 @@ class FirmwareDisassembler:
             if ldr_insn.id == ARM_INS_LDR:
                 common_objs.disassembled_firmware[src_memory_address+2]['is_data'] = True
                 common_objs.disassembled_firmware[src_memory_address+2]['insn'] = None
-            self.reg_eval = None
+            reg_eval_obj = None
             
         # Everything needs to be re-initialised, so just do this separately.
         table_branch_addresses = []
         for i in range(num_entries):
             logging.trace('Tracing for PC switch table entries with index ' + str(i))
-            self.reg_eval = RegisterEvaluator()
-            self.reg_eval.all_addresses = all_addresses
-            # Initialise parameters.
-            ## Initialise registers.
-            initialised_regs = {}
-            for reg in consts.REGISTERS:
-                initialised_regs[reg] = None
-            initialised_regs[ARM_REG_PC] = \
-                '{0:08x}'.format(self.reg_eval.get_pc_value(trace_start))
-            initialised_regs[comp_reg] = utils.convert_type(np.uint8(i), 'hex')
-            ## Initialise path.
-            current_path = hex(trace_start)
-            ## Initialise condition flags.
-            condition_flags = self.reg_eval.initialise_condition_flags()
+            (reg_eval_obj, init_regs, condition_flags, current_path) = \
+                self.initialise_objects_for_trace(
+                    all_addresses,
+                    trace_start, 
+                    comp_reg, 
+                    i
+                )
             # Get PC value.
             (_, _, _, register_object) = \
-                self.reg_eval.trace_register_values(trace_start, [ins_address],   
-                    initialised_regs, {}, condition_flags, {}, 
+                reg_eval_obj.trace_register_values(trace_start, [ins_address],   
+                    init_regs, {}, condition_flags, {}, 
                     {}, current_path, {}, 0, True)
             
             pc_value = int(register_object[ARM_REG_PC], 16)
             table_branch_addresses.append(pc_value)
             
-            self.reg_eval = None
+            reg_eval_obj = None
 
         if ins_address not in common_objs.replace_functions:
             common_objs.replace_functions[ins_address] = {
@@ -954,9 +945,7 @@ class FirmwareDisassembler:
         comp_value = None
         for i in range(10):
             address -= 2
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[address]['insn'] == None:
+            if utils.is_valid_code_address(address) != True:
                 continue
             prev_insn = common_objs.disassembled_firmware[address]['insn']
             if prev_insn.id != ARM_INS_CMP:
@@ -975,9 +964,7 @@ class FirmwareDisassembler:
         while cbranch < (ins_address-2):
             cbranch += 2
             if cbranch == ins_address: break
-            if common_objs.disassembled_firmware[cbranch]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[cbranch]['insn'] == None:
+            if utils.is_valid_code_address(cbranch) != True:
                 continue
             branch_insn = common_objs.disassembled_firmware[cbranch]['insn']
             if branch_insn.id not in [ARM_INS_B, ARM_INS_IT]:
@@ -1123,14 +1110,9 @@ class FirmwareDisassembler:
         logging.debug('Checking for __ARM_common_switch8')
         arm_switch8 = None
         for ins_address in common_objs.disassembled_firmware:
-            if ins_address in common_objs.errored_instructions:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
-                continue
-                
             insn = common_objs.disassembled_firmware[ins_address]['insn']
-            if insn == None: continue
-            
             is_potential_arm_switch8 = False
             if insn.id == ARM_INS_PUSH:
                 operands = insn.operands
@@ -1172,13 +1154,10 @@ class FirmwareDisassembler:
         gnu_thumb = None
         self.gnu_thumb = []
         for ins_address in common_objs.disassembled_firmware:
-            if ins_address in common_objs.errored_instructions:
-                continue
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
                 
             insn = common_objs.disassembled_firmware[ins_address]['insn']
-            if insn == None: continue
             
             is_potential_gnu_thumb = False
             if insn.id == ARM_INS_PUSH:
@@ -1535,13 +1514,9 @@ class FirmwareDisassembler:
             )
             if ins_address == None: break
             
-            if ins_address in common_objs.errored_instructions:
-                continue
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
             insn = common_objs.disassembled_firmware[ins_address]['insn']
-            if insn == None:
-                continue
                     
             # If the instruction is not a valid LDR instruction, then don't bother.
             if self.check_valid_pc_ldr(ins_address) != True:
@@ -1615,10 +1590,7 @@ class FirmwareDisassembler:
             'Checking basic branches and creating backlinks.'
         )
         for ins_address in disassembled_fw:
-            if ins_address in common_objs.errored_instructions:
-                continue
-                
-            if disassembled_fw[ins_address]['is_data'] == True:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
                 
             opcode_id = disassembled_fw[ins_address]['insn'].id
@@ -1635,7 +1607,7 @@ class FirmwareDisassembler:
         return disassembled_fw
                 
     def create_backlink(self, disassembled_fw, ins_address):
-        if disassembled_fw[ins_address]['is_data'] == True:
+        if utils.is_valid_code_address(ins_address) != True:
             return disassembled_fw
             
         insn = disassembled_fw[ins_address]['insn']
@@ -1707,9 +1679,7 @@ class FirmwareDisassembler:
         for ins_address in disassembled_fw:
             if ins_address < common_objs.code_start_address:
                 continue
-            if disassembled_fw[ins_address]['is_data'] == True:
-                continue
-            if ins_address in common_objs.errored_instructions:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
             if disassembled_fw[ins_address]['insn'].id == 0:
                 continue
@@ -1729,15 +1699,13 @@ class FirmwareDisassembler:
         return disassembled_fw
         
     def test_arm_arch(self):
+        """Test for ARM architecture version. We use this in function matching."""
+        
         arch7m_ins = [ARM_INS_UDIV, ARM_INS_TBB, ARM_INS_TBH]
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
-                continue
-            if common_objs.disassembled_firmware[ins_address]['insn'] == None:
-                continue
-            if ins_address in common_objs.errored_instructions:
+            if utils.is_valid_code_address(ins_address) != True:
                 continue
             if common_objs.disassembled_firmware[ins_address]['insn'].id == 0:
                 continue
@@ -1759,3 +1727,28 @@ class FirmwareDisassembler:
             aligned_pc_value = curr_pc_value - (curr_pc_value % 4)
             curr_pc_value = aligned_pc_value
         return curr_pc_value
+        
+    def initialise_objects_for_trace(self, all_addresses, trace_start, 
+            comp_reg, comp_val):
+        reg_eval_obj = RegisterEvaluator(perform_time_check=False)
+        reg_eval_obj.all_addresses = all_addresses
+        # Initialise parameters.
+        ## Initialise registers.
+        init_regs = {}
+        for reg in consts.REGISTERS:
+            init_regs[reg] = None
+            
+        start_stack_pointer = int(common_objs.application_vector_table['initial_sp'])
+        init_regs[ARM_REG_SP] = '{0:08x}'.format(start_stack_pointer)
+        
+        init_regs[ARM_REG_PC] = \
+            '{0:08x}'.format(reg_eval_obj.get_pc_value(trace_start))
+            
+        init_regs[comp_reg] = utils.convert_type(np.uint8(comp_val), 'hex')
+        
+        ## Initialise path.
+        current_path = hex(trace_start)
+        ## Initialise condition flags.
+        condition_flags = reg_eval_obj.initialise_condition_flags()
+        
+        return (reg_eval_obj, init_regs, condition_flags, current_path)
