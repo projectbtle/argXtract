@@ -210,12 +210,10 @@ class FirmwareAnalyser:
         self.disassembler = None
         self.function_evaluator = None
         self.coi_processor = None
-        self.register_evaluator = None
         
         self.disassembler = FirmwareDisassembler()
         self.function_evaluator = FunctionEvaluator()
         self.coi_processor = CoiProcessor()
-        self.register_evaluator = RegisterEvaluator()
         
         # Reset paths.
         common_paths.path_to_fw = ''

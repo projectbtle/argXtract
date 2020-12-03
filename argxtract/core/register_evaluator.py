@@ -20,12 +20,11 @@ from argxtract.common import objects as common_objs
 
 
 class RegisterEvaluator:
-    def __init__(self, perform_time_check=True):
+    def __init__(self):
         self.per_trace_start_time = None
         self.start_time = None
         self.all_addresses = None
         self.instruction_queue = collections.deque()
-        self.perform_time_check = perform_time_check
         
     def estimate_reg_values_for_trace_object(self, trace_obj, coi_processor_instance): 
         logging.info('Starting register trace.')
@@ -947,10 +946,12 @@ class RegisterEvaluator:
                     traced_paths[path_list[0]] = {}
                     if element != branch_target:
                         logging.critical('Invalid trace path!')
-                        return (True, None)
+                        if common_objs.allow_loops != True:
+                            return (True, None)
                 else:
                     logging.critical('Invalid trace path!')
-                    return (True, None)
+                    if common_objs.allow_loops != True:
+                        return (True, None)
             path_list = path_list[1:]
             traced_paths = traced_paths[element]
             counter += 1
@@ -4686,8 +4687,6 @@ class RegisterEvaluator:
         
     def time_check(self):
         """Check if elapsed time is greater than max allowable runtime. """
-        if self.perform_time_check == False:
-            return False
         if common_objs.per_trace_max_time != 0:
             per_trace_elapsed_time = timeit.default_timer() - self.per_trace_start_time
             if (per_trace_elapsed_time >= common_objs.per_trace_max_time):
