@@ -63,6 +63,126 @@ class FunctionPatternMatcher:
                 
         return matched_functions
                 
+    def function_decompose(self, start_address, end_address, function_object):
+        # Split the function into 3 sections:
+        #  1. Instructions preceding conditional branch (if branch exists)
+        #  2. Branch 1
+        #  3. Branch 2
+        sections = {
+            'pre-branch': [],
+            'branch': {
+                'address': [],
+                'target': None,
+                'register': None,
+                'value': None,
+                'condition': None
+            },
+            'branch-path1': [],
+            'branch-path2': []
+        }
+        
+        # First get all instruction preceding any branch.
+        sections = self.identify_prebranch(
+            start_address, 
+            end_address, 
+            sections, 
+            function_object
+        )
+        
+        path1 = []
+        path2 = []
+        all_addresses = list(function_object.keys())
+        all_addresses.sort()
+        # If there was a branch, then get the two paths.
+        if sections['branch']['address'] != []:
+            # One of the two paths will begin at address immediately following branch.
+            path1_address = utils.get_next_address(
+                all_addresses,
+                max(sections['branch']['address'])
+            )
+            path1 = self.trace_branch_paths(
+                start_address,
+                end_address,
+                path1_address,
+                sections['branch']['address'],
+                function_object
+            )
+            # The other address will be the branch target.
+            path2_address = sections['branch']['target']
+            path2 = self.trace_branch_paths(
+                start_address,
+                end_address,
+                path2_address,
+                sections['branch']['address'],
+                function_object
+            )
+
+        sections['branch-path1'] = path1
+        sections['branch-path2'] = path2
+        
+        return sections
+        
+    def identify_prebranch(self, function_start, function_end, sections, function_object):
+        all_addresses = list(function_object.keys())
+        all_addresses.sort()
+        
+        address = function_start-2
+        branch_identified = False
+        while address <= function_end:
+            address = utils.get_next_address(all_addresses, address)
+            if address == None: break
+            insn = function_object[address]['insn']
+            if insn == None:
+                address = utils.get_next_address(all_addresses, address)
+                if address == None: break
+                continue
+            if insn.id == ARM_INS_INVALID:
+                address = utils.get_next_address(all_addresses, address)
+                if address == None: break
+                continue
+
+            operands = insn.operands
+            if insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
+                branch_target = operands[1].value.imm
+                if ((branch_target < function_start) 
+                        or (branch_target > function_end)):
+                    return sections
+                branch_identified = True
+                sections['branch']['address'].append(address)
+                sections['branch']['value'] = 0
+                if insn.id == ARM_INS_CBZ:
+                    sections['branch']['condition'] = ARM_CC_EQ
+                else:
+                    sections['branch']['condition'] = ARM_CC_NE
+            elif (insn.id in [ARM_INS_CMN, 
+                    ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]):
+                orig_address = address
+                address = \
+                    utils.get_next_address(all_addresses, address)
+                branch_insn = \
+                    function_object[address]['insn']
+                if branch_insn == None:
+                    return sections
+                if ((branch_insn.id != ARM_INS_B) 
+                        or (branch_insn.cc == ARM_CC_AL) 
+                        or (branch_insn.cc == ARM_CC_INVALID)):
+                    return sections
+                branch_operands = branch_insn.operands
+                branch_target = branch_operands[0].value.imm
+                if ((branch_target < function_start) 
+                        or (branch_target > function_end)):
+                    return sections
+                sections['branch']['address'].append(orig_address)
+                sections['branch']['address'].append(address)
+                sections['branch']['condition'] = branch_insn.cc
+                branch_identified = True
+            if branch_identified == False:
+                sections['pre-branch'].append(address)
+            else:
+                sections['branch']['target'] = branch_target
+                break
+        return sections
+        
     def decompose_pattern_file(self, pattern_file):
         logging.info('Matching pattern for ' + pattern_file)
         # The pattern file contains bytes corresponding to a function
@@ -110,6 +230,19 @@ class FunctionPatternMatcher:
             pattern_insn_object
         )
 
+        is_branch_in_pattern = False
+        if len(pattern_sections['branch']['address']) > 0: 
+            is_branch_in_pattern = True
+        if is_branch_in_pattern == True:
+            (pattern_comp_reg, pattern_comp_value, pattern_comp_cc) = \
+                self.get_comparison_reg_value(
+                    pattern_sections,
+                    pattern_insn_object
+                )
+            pattern_sections['branch']['register'] = pattern_comp_reg
+            pattern_sections['branch']['value'] = pattern_comp_value
+            pattern_sections['branch']['condition'] = pattern_comp_cc
+
         # Identify input registers used in pattern function.
         pattern_registers = self.identify_input_registers(
             pattern_sections,
@@ -119,7 +252,7 @@ class FunctionPatternMatcher:
         logging.debug('Pattern registers ' + str(pattern_registers))
         
         return (pattern_insn_object, pattern_sections, pattern_registers)
-        
+
     def match_pattern_file(self, pattern_file, pattern_insn_object, 
             pattern_sections, pattern_registers):
         # Check each function for pattern match.
@@ -181,7 +314,7 @@ class FunctionPatternMatcher:
         # There are many operations we don't support in this first attempt.
         
         # Large functions are excluded.        
-        if ((function_end-function_start) > 20):
+        if ((function_end-function_start) > 30):
             # UNSUPPORTED returns TRUE
             return True
             
@@ -261,26 +394,20 @@ class FunctionPatternMatcher:
             return False
 
         if is_branch_in_function == True:
-            (pattern_comp_reg, pattern_comp_value, pattern_comp_cc) = \
-                self.get_comparison_reg_value(
-                    pattern_sections,
-                    pattern_insn_object
-                )
             (function_comp_reg, function_comp_value, function_comp_cc) = \
                 self.get_comparison_reg_value(
                     function_sections,
                     common_objs.disassembled_firmware
                 )
-
-            if pattern_comp_reg != function_comp_reg:
+            if pattern_sections['branch']['register'] != function_comp_reg:
                 logging.debug('Comparison registers don\'t match.')
                 return False
-            if pattern_comp_value != pattern_comp_value:
+            if pattern_sections['branch']['value'] != pattern_comp_value:
                 logging.debug('Comparison values don\'t match.')
                 return False
             condition_match = self.check_condition_match(
                 function_comp_cc,
-                pattern_comp_cc
+                pattern_sections['branch']['condition']
             )
             if condition_match not in [1, -1]:
                 logging.debug('Comparison conditions don\'t match.')
@@ -458,127 +585,7 @@ class FunctionPatternMatcher:
                 regs[operands[0].value.reg] = new_path[address]['dst_val']
 
         return new_path
-    
-    def function_decompose(self, start_address, end_address, function_object):
-        # Split the function into 3 sections:
-        #  1. Instructions preceding conditional branch (if branch exists)
-        #  2. Branch 1
-        #  3. Branch 2
-        sections = {
-            'pre-branch': [],
-            'branch': {
-                'address': [],
-                'target': None,
-                'register': None,
-                'value': None,
-                'condition': None
-            },
-            'branch-path1': [],
-            'branch-path2': []
-        }
-        
-        # First get all instruction preceding any branch.
-        sections = self.identify_prebranch(
-            start_address, 
-            end_address, 
-            sections, 
-            function_object
-        )
-        
-        path1 = []
-        path2 = []
-        all_addresses = list(function_object.keys())
-        all_addresses.sort()
-        # If there was a branch, then get the two paths.
-        if sections['branch']['address'] != []:
-            # One of the two paths will begin at address immediately following branch.
-            path1_address = utils.get_next_address(
-                all_addresses,
-                max(sections['branch']['address'])
-            )
-            path1 = self.trace_branch_paths(
-                start_address,
-                end_address,
-                path1_address,
-                sections['branch']['address'],
-                function_object
-            )
-            # The other address will be the branch target.
-            path2_address = sections['branch']['target']
-            path2 = self.trace_branch_paths(
-                start_address,
-                end_address,
-                path2_address,
-                sections['branch']['address'],
-                function_object
-            )
 
-        sections['branch-path1'] = path1
-        sections['branch-path2'] = path2
-        
-        return sections
-        
-    def identify_prebranch(self, function_start, function_end, sections, function_object):
-        all_addresses = list(function_object.keys())
-        all_addresses.sort()
-        
-        address = function_start-2
-        branch_identified = False
-        while address <= function_end:
-            address = utils.get_next_address(all_addresses, address)
-            if address == None: break
-            insn = function_object[address]['insn']
-            if insn == None:
-                address = utils.get_next_address(all_addresses, address)
-                if address == None: break
-                continue
-            if insn.id == ARM_INS_INVALID:
-                address = utils.get_next_address(all_addresses, address)
-                if address == None: break
-                continue
-
-            operands = insn.operands
-            if insn.id in [ARM_INS_CBNZ, ARM_INS_CBZ]:
-                branch_target = operands[1].value.imm
-                if ((branch_target < function_start) 
-                        or (branch_target > function_end)):
-                    return sections
-                branch_identified = True
-                sections['branch']['address'].append(address)
-                sections['branch']['value'] = 0
-                if insn.id == ARM_INS_CBZ:
-                    sections['branch']['condition'] = ARM_CC_EQ
-                else:
-                    sections['branch']['condition'] = ARM_CC_NE
-            elif (insn.id in [ARM_INS_CMN, 
-                    ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]):
-                orig_address = address
-                address = \
-                    utils.get_next_address(all_addresses, address)
-                branch_insn = \
-                    function_object[address]['insn']
-                if branch_insn == None:
-                    return sections
-                if ((branch_insn.id != ARM_INS_B) 
-                        or (branch_insn.cc == ARM_CC_AL) 
-                        or (branch_insn.cc == ARM_CC_INVALID)):
-                    return sections
-                branch_operands = branch_insn.operands
-                branch_target = branch_operands[0].value.imm
-                if ((branch_target < function_start) 
-                        or (branch_target > function_end)):
-                    return sections
-                sections['branch']['address'].append(orig_address)
-                sections['branch']['address'].append(address)
-                sections['branch']['condition'] = branch_insn.cc
-                branch_identified = True
-            if branch_identified == False:
-                sections['pre-branch'].append(address)
-            else:
-                sections['branch']['target'] = branch_target
-                break
-        return sections
-        
     def trace_branch_paths(self, function_start, function_end, 
             trace_start, conditional_branch_address, function_object):
         all_addresses = list(function_object.keys())
