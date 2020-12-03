@@ -2,13 +2,16 @@ import os
 import sys
 import copy
 import json
+import random
 import logging
+import numpy as np
 from capstone import *
 from capstone.arm import *
 from argxtract.common import paths as common_paths
 from argxtract.core import utils
 from argxtract.core import consts
 from argxtract.common import objects as common_objs
+from argxtract.core.strand_execution import StrandExecution
 
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB + CS_MODE_LITTLE_ENDIAN)
 # Turn on SKIPDATA mode - this is needed!
@@ -18,7 +21,7 @@ md.detail = True
 
 class FunctionPatternMatcher:
     def __init__(self):
-        pass
+        self.test_sets = {}
         
     def match_vendor_functions(self):
         logging.info('Performing vendor function pattern matching.')
@@ -45,13 +48,14 @@ class FunctionPatternMatcher:
         for pattern_file in pattern_files:
             filename = \
                 (os.path.basename(pattern_file)).replace('.txt', '')
-            (pattern_insn_object, pattern_sections, pattern_registers) = \
+            (pattern_insn_object, pattern_sections, pattern_registers, pattern_exec_obj) = \
                 self.decompose_pattern_file(pattern_file)
             address = self.match_pattern_file(
                 pattern_file,
                 pattern_insn_object, 
                 pattern_sections,
-                pattern_registers
+                pattern_registers,
+                pattern_exec_obj
             )
             if address != None:
                 if common_objs.function_blocks[address]['xref_from'] == []:
@@ -69,6 +73,8 @@ class FunctionPatternMatcher:
         #  2. Branch 1
         #  3. Branch 2
         sections = {
+            'start': start_address,
+            'end': end_address,
             'pre-branch': [],
             'branch': {
                 'address': [],
@@ -78,8 +84,17 @@ class FunctionPatternMatcher:
                 'condition': None
             },
             'branch-path1': [],
-            'branch-path2': []
+            'branch-path2': [],
+            'exits': []
         }
+        
+        exits = self.identify_exits(
+            start_address, 
+            end_address, 
+            sections, 
+            function_object
+        )
+        sections['exits'] = exits
         
         # First get all instruction preceding any branch.
         sections = self.identify_prebranch(
@@ -121,6 +136,37 @@ class FunctionPatternMatcher:
         sections['branch-path2'] = path2
         
         return sections
+      
+    def identify_exits(self, function_start, function_end, sections, function_object):
+        exits = []
+        all_addresses = list(function_object.keys())
+        all_addresses.sort()
+        
+        address = function_start-2
+        branch_identified = False
+        while address <= function_end:
+            address = utils.get_next_address(all_addresses, address)
+            if address == None: break
+            if function_object[address]['is_data'] == True:
+                exits.append(address)
+                continue
+            insn = function_object[address]['insn']
+            if insn == None:
+                exits.append(address)
+                continue
+            if insn.id == 0:
+                exits.append(address)
+                continue
+            if insn.id == ARM_INS_BX:
+                exits.append(address)
+                continue
+            if insn.id == ARM_INS_POP:
+                operands = insn.operands
+                final_operand = operands[-1]
+                if final_operand.value.reg == ARM_REG_PC:
+                    exits.append(address)
+                    continue
+        return exits
         
     def identify_prebranch(self, function_start, function_end, sections, function_object):
         all_addresses = list(function_object.keys())
@@ -251,10 +297,17 @@ class FunctionPatternMatcher:
         pattern_registers.sort()
         logging.debug('Pattern registers ' + str(pattern_registers))
         
-        return (pattern_insn_object, pattern_sections, pattern_registers)
+        pattern_sections['input_registers'] = pattern_registers
+        self.test_sets = self.generate_test_sets(pattern_sections)
+        pattern_exec_obj = self.symbolically_execute(pattern_sections, pattern_insn_object)
+        logging.trace(
+            'Pattern function\'s symbolic execution output: '
+            + str(pattern_exec_obj)
+        )
+        return (pattern_insn_object, pattern_sections, pattern_registers, pattern_exec_obj)
 
     def match_pattern_file(self, pattern_file, pattern_insn_object, 
-            pattern_sections, pattern_registers):
+            pattern_sections, pattern_registers, pattern_exec_obj):
         # Check each function for pattern match.
         matches = []
         for function in common_objs.function_blocks:
@@ -262,7 +315,8 @@ class FunctionPatternMatcher:
                 function, 
                 pattern_insn_object,
                 pattern_sections,
-                pattern_registers
+                pattern_registers,
+                pattern_exec_obj
             )
             if is_match == True:
                 matches.append(function)
@@ -290,7 +344,7 @@ class FunctionPatternMatcher:
         return match
         
     def match_function_to_pattern(self, start_address, pattern_insn_object,
-            pattern_sections, pattern_registers):
+            pattern_sections, pattern_registers, pattern_exec_obj):
         end_address = utils.id_function_block_end(start_address)
         
         has_unsupported_operations = self.unsupported_operations(
@@ -306,7 +360,8 @@ class FunctionPatternMatcher:
             end_address, 
             pattern_insn_object,
             pattern_sections,
-            pattern_registers
+            pattern_registers,
+            pattern_exec_obj
         )
         return is_match
 
@@ -343,8 +398,8 @@ class FunctionPatternMatcher:
             # UNSUPPORTED returns TRUE
             return True
     
-    def analyse_function(self, start_address, end_address, 
-            pattern_insn_object, pattern_sections, pattern_registers):
+    def analyse_function(self, start_address, end_address, pattern_insn_object,
+            pattern_sections, pattern_registers, pattern_exec_obj):
         logging.debug(
             '\nAnalysing function starting at ' 
             + hex(start_address) 
@@ -379,6 +434,8 @@ class FunctionPatternMatcher:
             logging.debug('Input registers don\'t match')
             return False
         
+        function_sections['input_registers'] = input_registers
+        
         logging.debug('Pattern sections\n' + json.dumps(pattern_sections))
         logging.debug('Function sections\n' + json.dumps(function_sections))
         
@@ -402,7 +459,7 @@ class FunctionPatternMatcher:
             if pattern_sections['branch']['register'] != function_comp_reg:
                 logging.debug('Comparison registers don\'t match.')
                 return False
-            if pattern_sections['branch']['value'] != pattern_comp_value:
+            if pattern_sections['branch']['value'] != function_comp_value:
                 logging.debug('Comparison values don\'t match.')
                 return False
             condition_match = self.check_condition_match(
@@ -412,11 +469,17 @@ class FunctionPatternMatcher:
             if condition_match not in [1, -1]:
                 logging.debug('Comparison conditions don\'t match.')
                 return False
-        
+            
+            # Update function sections object.
+            function_sections['branch']['register'] = function_comp_reg
+            function_sections['branch']['value'] = function_comp_value
+            function_sections['branch']['condition'] = function_comp_cc
+            
         is_match = self.compare_function_with_pattern(
             function_sections,
             pattern_insn_object,
             pattern_sections,
+            pattern_exec_obj, 
             condition_match
         )
         
@@ -435,7 +498,6 @@ class FunctionPatternMatcher:
             return 0
         return -1
         
-    
     def compare_basic_components(self, start_address, end_address, 
             pattern_insn_object):
         function_basics = self.check_basic_components_for_function(
@@ -502,7 +564,7 @@ class FunctionPatternMatcher:
         logging.debug('Generating equivalent register path.')
         new_path = {}
         regs = {}
-        for reg in [ARM_REG_R0, ARM_REG_R1, ARM_REG_R2, ARM_REG_R3]:
+        for reg in consts.REGISTERS:
             regs[reg] = 'reg' + str(reg)
             
         for address in path:
@@ -526,7 +588,6 @@ class FunctionPatternMatcher:
             
             if len(operands) == 0:
                 continue
-                
             new_path[address]['dst_reg'] = operands[0].value.reg
             
             # With STR, we only care about the source register 
@@ -539,7 +600,7 @@ class FunctionPatternMatcher:
             if len(operands) < 2:
                 continue
                 
-            if (insn.id in [ARM_INS_MOV, ARM_INS_MOVW]):
+            if (insn.id in [ARM_INS_MOV, ARM_INS_MOVW, ARM_INS_MOVT]):
                 if operands[1].type == ARM_OP_REG:
                     new_path[address]['dst_val'] = regs[operands[1].value.reg]
                 else:
@@ -666,28 +727,30 @@ class FunctionPatternMatcher:
             #  impact the registers.
             if insn.id in [ARM_INS_B, ARM_INS_BL, ARM_INS_INVALID]:
                 continue
-            if insn.id in [ARM_INS_MOV, ARM_INS_MOVW]:
+            if insn.id in [ARM_INS_MOV, ARM_INS_MOVW, ARM_INS_MOVT]:
                 if insn.operands[0].value.reg == insn.operands[1].value.reg:
                     continue
             
             # Some instructions need special handling.
             operands = insn.operands
+            if len(operands) == 0:
+                continue
+                
             if insn.id == ARM_INS_PUSH:
                 for operand in operands:
                     if operand.type != ARM_OP_REG: continue
                     non_input_regs.append(operand.value.reg)
+                # These instructions don't modify registers.
                 continue
             elif insn.id in [ARM_INS_STR, ARM_INS_STREX, 
                     ARM_INS_STRH, ARM_INS_STREXH, 
-                    ARM_INS_STRB, ARM_INS_STREXB,
-                    ARM_INS_LDR, ARM_INS_LDREX, 
-                    ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH, 
-                    ARM_INS_LDRB, ARM_INS_LDRSB, ARM_INS_LDREXB]:
+                    ARM_INS_STRB, ARM_INS_STREXB]:
                 input_regs = self.test_and_add_input_registers(
                     input_regs,
                     non_input_regs,
                     [operands[0], operands[1]]
                 )
+                # These instructions don't modify registers.
                 continue
             elif insn.id in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, 
                     ARM_INS_TST, ARM_INS_BX, ARM_INS_CBZ, ARM_INS_CBNZ]:
@@ -699,23 +762,36 @@ class FunctionPatternMatcher:
                     non_input_regs,
                     cmp_regs
                 )
+                # These instructions don't modify registers.
                 continue
-
-            if len(operands) == 0:
-                continue
-
-            # Apart from special instructions, we take 0th operand to be 
-            #  destination operand and remaining as source operands.
-            reg_operands = []
-            for idx, operand in enumerate(reversed(operands)):
-                if idx == (len(operands)-1):
-                    break
-                reg_operands.append(operand)
-            input_regs = self.test_and_add_input_registers(
-                input_regs,
-                non_input_regs,
-                reg_operands
-            ) 
+            elif insn.id in [ARM_INS_MOV, ARM_INS_MOVW, ARM_INS_MOVT]:
+                src_regs = []
+                if operands[1].type == ARM_OP_REG:
+                    src_regs.append(operands[1])
+                input_regs = self.test_and_add_input_registers(
+                    input_regs,
+                    non_input_regs,
+                    src_regs
+                )
+            elif insn.id in [ARM_INS_LDR, ARM_INS_LDREX, 
+                    ARM_INS_LDRH, ARM_INS_LDRSH, ARM_INS_LDREXH, 
+                    ARM_INS_LDRB, ARM_INS_LDRSB, ARM_INS_LDREXB]:
+                input_regs = self.test_and_add_input_registers(
+                    input_regs,
+                    non_input_regs,
+                    [operands[1]]
+                )
+            else:
+                reg_operands = []
+                for idx, operand in enumerate(reversed(operands)):
+                    reg_operands.append(operand)
+                input_regs = self.test_and_add_input_registers(
+                    input_regs,
+                    non_input_regs,
+                    reg_operands
+                ) 
+            
+            # 0th register is used to hold destination value.
             if operands[0].value.reg not in input_regs:
                 non_input_regs.append(operands[0].value.reg)
                 
@@ -742,165 +818,103 @@ class FunctionPatternMatcher:
         return input_regs
         
     def compare_function_with_pattern(self, function_sections, 
-            pattern_insn_object, pattern_sections, condition_match):
-        logging.debug('Analysing individual paths of function against pattern.')
-        pattern_paths = self.combine_paths(pattern_sections)
-        function_paths = self.combine_paths(function_sections)
-        
-        logging.debug('Mapping register values.')
-        mapped_pattern_paths = []
-        for pattern_path in pattern_paths:
-            mapped_pattern_paths.append(
-                self.get_equivalent_regs_for_path(
-                    pattern_path,
-                    pattern_insn_object
-                )
-            )
-        
-        mapped_function_paths = []
-        for function_path in function_paths:
-            mapped_function_paths.append(
-                self.get_equivalent_regs_for_path(
-                    function_path,
-                    common_objs.disassembled_firmware
-                )
-            )
-        
-        logging.trace('Mapped pattern paths ' + str(mapped_pattern_paths))
-        logging.trace('Mapped function paths ' + str(mapped_function_paths))
-        
-        num_paths = len(mapped_pattern_paths)
-        if num_paths > 1:
-            # If there's a branch, we need to check the condition
-            (mapped_function_branch1, mapped_function_branch2) = \
-                self.get_individual_branches(mapped_function_paths, function_sections)
-            (mapped_pattern_branch1, mapped_pattern_branch2) = \
-                self.get_individual_branches(mapped_pattern_paths, pattern_sections)
-            if condition_match == 1:
-                is_match = self.compare_function_path_with_pattern(
-                    mapped_function_branch1,
-                    mapped_pattern_branch1,
-                    pattern_insn_object
-                )
-                if is_match == False: return False
-                is_match = self.compare_function_path_with_pattern(
-                    mapped_function_branch2,
-                    mapped_pattern_branch2,
-                    pattern_insn_object
-                )
-                if is_match == False: return False
-            else:
-                is_match = self.compare_function_path_with_pattern(
-                    mapped_function_branch1,
-                    mapped_pattern_branch2,
-                    pattern_insn_object
-                )
-                if is_match == False: return False
-                is_match = self.compare_function_path_with_pattern(
-                    mapped_function_branch2,
-                    mapped_pattern_branch1,
-                    pattern_insn_object
-                )
-                if is_match == False: return False
-        else:
-            is_match = self.compare_function_path_with_pattern(
-                mapped_function_paths[0],
-                mapped_pattern_paths[0],
-                pattern_insn_object
-            )
-            if is_match == False: return False
+            pattern_insn_object, pattern_sections, pattern_exec_obj, 
+            condition_match):
+        logging.debug('Comparing symbolic execution of function against pattern.')
+        function_exec_object = self.symbolically_execute(
+            function_sections, 
+            common_objs.disassembled_firmware
+        )
+        logging.trace(
+            'Function\'s symbolic execution output: '
+            + str(function_exec_object)        
+        )
+        for test_set in self.test_sets:
+            if (pattern_exec_obj[test_set]['mem'] != 
+                    function_exec_object[test_set]['mem']):
+                logging.trace('Memory contents don\'t match')
+                return False
+            for reg_idx in range(10):
+                if (pattern_exec_obj[test_set]['reg'][66+reg_idx] != 
+                        function_exec_object[test_set]['reg'][66+reg_idx]):
+                    logging.trace('Register contents don\'t match')
+                    return False
         return True
-            
-    def get_individual_branches(self, mapped_paths, sections):
-        branch1_addresses = sections['branch-path1']
-        branch2_addresses = sections['branch-path2']
-        
-        mapped_branch1_addresses = {}
-        mapped_branch2_addresses = {}
-        
-        mapped_path1_keys = list(mapped_paths[0].keys())
-        mapped_path2_keys = list(mapped_paths[1].keys())
 
-        if ((set(branch1_addresses).issubset(set(mapped_path1_keys))) and 
-                (set(branch2_addresses).issubset(set(mapped_path2_keys)))):
-            path1 = mapped_paths[0]
-            path2 = mapped_paths[1]
-        elif ((set(branch1_addresses).issubset(set(mapped_path2_keys))) and 
-                (set(branch2_addresses).issubset(set(mapped_path1_keys)))):
-            path1 = mapped_paths[1]
-            path2 = mapped_paths[0]
+    def generate_test_sets(self, pattern_sections):
+        test_set = {}
+        if pattern_sections['branch']['value'] == None:
+            num_test_sets = 1
+        elif (not (pattern_sections['branch']['value'].startswith('imm'))):
+            num_test_sets = 1
         else:
-            logging.error('No matches for subset')
-            path1 = {}
-            path2 = {}
-                
-        for branch_address in path1:
-            mapped_branch1_addresses[branch_address] = path1[branch_address]
-        for branch_address in path2:
-            mapped_branch2_addresses[branch_address] = path2[branch_address]
-            
-        return (mapped_branch1_addresses, mapped_branch2_addresses)
-    
-    def compare_function_path_with_pattern(self, function_path, pattern_path,
-            pattern_insn_object):
-        logging.debug(
-            'Function path with equivalent registers: ' 
-            + str(function_path)
-            + '. Pattern path with equivalent registers: '
-            + str(pattern_path)
-        )
-        # We first look for key instructions.
-        address_matches = []
-        address_mismatches = []
-        for p_address in pattern_path:
-            pattern_obj = pattern_path[p_address]
-            pattern_insn = pattern_obj['opcode']
-            if pattern_insn in [ARM_INS_STR, ARM_INS_STRB, ARM_INS_STREX, 
-                    ARM_INS_STREXB, ARM_INS_STREXH, ARM_INS_STRH]:
-                for f_address in function_path:
-                    function_obj = function_path[f_address]
-                    if function_obj['opcode'] != pattern_insn:
-                        continue
-                    if pattern_obj['dst_reg'] != function_obj['dst_reg']:
-                        continue
-                    if pattern_obj['dst_val'] != function_obj['dst_val']:
-                        continue
-                    address_matches.append(p_address)
-                if p_address not in address_matches:
-                    address_mismatches.append(p_address)
+            num_test_sets = 2
         
-        if len(address_mismatches) > 0:
-            logging.debug('Pattern mismatches identified.')
-            return False
-            
-        # Consider final values of registers.
-        p_regs = {}
-        for p_address in pattern_path:
-            pattern_obj = pattern_path[p_address]
-            pattern_insn = pattern_obj['opcode']
-            if pattern_insn in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]:
-                continue
-            p_regs[pattern_obj['dst_reg']] = pattern_obj['dst_val']
-        f_regs = {}
-        for f_address in function_path:
-            function_obj = function_path[f_address]
-            function_insn = function_obj['opcode']
-            if function_insn in [ARM_INS_CMN, ARM_INS_CMP, ARM_INS_TEQ, ARM_INS_TST]:
-                continue
-            f_regs[function_obj['dst_reg']] = function_obj['dst_val']
-            
-        logging.debug(
-            'Final register values for pattern: '
-            + str(p_regs)
-            + ' and for function: '
-            + str(f_regs)
-        )
-        # Register r0 typically contains an output code.
-        # But what if it returns void?
-        if ARM_REG_R0 in list(p_regs.keys()):
-            if ARM_REG_R0 not in list(f_regs.keys()):
-                return False
-            if p_regs[ARM_REG_R0] != f_regs[ARM_REG_R0]:
-                return False
+        if num_test_sets == 2:
+            pass
         
-        return True
+        test_set['set1'] = {}
+        for reg in pattern_sections['input_registers']:
+            test_set['set1'][reg] = random.randint(1,9)
+        return test_set
+        
+    def symbolically_execute(self, exec_input_object, exec_instruction_object):
+        exec_output_object = {}
+        for test_set in self.test_sets:
+            exec_output_object[test_set] = self.symbolically_execute_test_set(
+                exec_input_object,
+                exec_instruction_object,
+                self.test_sets[test_set]
+            )
+        return exec_output_object
+            
+    def symbolically_execute_test_set(self, exec_input_object, 
+            exec_instruction_object, regs):
+        all_addresses = list(exec_instruction_object.keys())
+        all_addresses.sort()
+        (strand_eval_obj, init_regs, condition_flags, current_path) = \
+            self.initialise_objects_for_trace(
+                all_addresses, 
+                exec_input_object['start'], 
+                regs
+            )
+        memory_map = {}
+        (pre_exec_address, memory_map, register_object) = \
+            strand_eval_obj.trace_register_values(
+                exec_instruction_object,
+                exec_input_object['start'],
+                exec_input_object['exits'], 
+                init_regs, memory_map, condition_flags, False)
+        output_object = {
+            'mem': memory_map,
+            'reg': register_object
+        }
+        return output_object
+        
+    def initialise_objects_for_trace(self, all_addresses, 
+            trace_start, regs):
+        strand_eval_obj = StrandExecution(
+            all_addresses
+        )
+        # Initialise parameters.
+        ## Initialise registers.
+        init_regs = {}
+        for reg in consts.REGISTERS:
+            init_regs[reg] = None
+            
+        start_stack_pointer = int(common_objs.application_vector_table['initial_sp'])
+        init_regs[ARM_REG_SP] = '{0:08x}'.format(start_stack_pointer)
+        
+        init_regs[ARM_REG_PC] = \
+            '{0:08x}'.format(strand_eval_obj.get_pc_value(trace_start))
+            
+        for reg in regs:
+            hex_comp_value = utils.convert_type(np.uint8(regs[reg]), 'hex')
+            init_regs[reg] = hex_comp_value.zfill(8)
+        
+        ## Initialise path.
+        current_path = hex(trace_start)
+        ## Initialise condition flags.
+        condition_flags = strand_eval_obj.initialise_condition_flags()
+        
+        return (strand_eval_obj, init_regs, condition_flags, current_path)

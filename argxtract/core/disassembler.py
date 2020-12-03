@@ -13,7 +13,7 @@ from argxtract.core import consts
 from argxtract.core import binary_operations as binops
 from argxtract.common import paths as common_paths
 from argxtract.common import objects as common_objs
-from argxtract.core.register_evaluator import RegisterEvaluator
+from argxtract.core.strand_execution import StrandExecution
 
 md = Cs(CS_ARCH_ARM, CS_MODE_THUMB + CS_MODE_LITTLE_ENDIAN)
 # Turn on SKIPDATA mode - this is needed!
@@ -762,7 +762,7 @@ class FirmwareDisassembler:
         ldr_trace_end = utils.get_previous_address(all_addresses, ldr_address)
         for i in range(num_entries):
             logging.trace('Tracing for PC switch LDRs with index ' + str(i))
-            (reg_eval_obj, init_regs, condition_flags, current_path) = \
+            (strand_exec_inst, init_regs, condition_flags, current_path) = \
                 self.initialise_objects_for_trace(
                     all_addresses,
                     trace_start, 
@@ -771,12 +771,14 @@ class FirmwareDisassembler:
                 )
             
             # Trace LDR using register evaluator.
-            (_, _, _, register_object) = \
-                reg_eval_obj.trace_register_values(trace_start, [ldr_trace_end],   
-                    init_regs, {}, condition_flags, {}, 
-                    {}, current_path, {}, 0, True)
+            (_, _, register_object) = \
+                strand_exec_inst.trace_register_values(
+                    common_objs.disassembled_firmware,
+                    trace_start, [ldr_trace_end],   
+                    init_regs, {}, condition_flags, True
+                )
             (src_memory_address, _) = \
-                reg_eval_obj.get_memory_address(
+                strand_exec_inst.get_memory_address(
                     register_object,
                     ldr_address,
                     ldr_operands[1],
@@ -803,13 +805,13 @@ class FirmwareDisassembler:
             if ldr_insn.id == ARM_INS_LDR:
                 common_objs.disassembled_firmware[src_memory_address+2]['is_data'] = True
                 common_objs.disassembled_firmware[src_memory_address+2]['insn'] = None
-            reg_eval_obj = None
+            strand_exec_inst = None
             
         # Everything needs to be re-initialised, so just do this separately.
         table_branch_addresses = []
         for i in range(num_entries):
             logging.trace('Tracing for PC switch table entries with index ' + str(i))
-            (reg_eval_obj, init_regs, condition_flags, current_path) = \
+            (strand_exec_inst, init_regs, condition_flags, current_path) = \
                 self.initialise_objects_for_trace(
                     all_addresses,
                     trace_start, 
@@ -817,15 +819,17 @@ class FirmwareDisassembler:
                     i
                 )
             # Get PC value.
-            (_, _, _, register_object) = \
-                reg_eval_obj.trace_register_values(trace_start, [ins_address],   
-                    init_regs, {}, condition_flags, {}, 
-                    {}, current_path, {}, 0, True)
+            (_, _, register_object) = \
+                strand_exec_inst.trace_register_values(
+                    common_objs.disassembled_firmware,
+                    trace_start, [ins_address],   
+                    init_regs, {}, condition_flags, True
+                )
             
             pc_value = int(register_object[ARM_REG_PC], 16)
             table_branch_addresses.append(pc_value)
             
-            reg_eval_obj = None
+            strand_exec_inst = None
 
         if ins_address not in common_objs.replace_functions:
             common_objs.replace_functions[ins_address] = {
@@ -1742,8 +1746,7 @@ class FirmwareDisassembler:
         
     def initialise_objects_for_trace(self, all_addresses, trace_start, 
             comp_reg, comp_val):
-        reg_eval_obj = RegisterEvaluator(perform_time_check=False)
-        reg_eval_obj.all_addresses = all_addresses
+        strand_exec_inst = StrandExecution(all_addresses)
         # Initialise parameters.
         ## Initialise registers.
         init_regs = {}
@@ -1754,13 +1757,14 @@ class FirmwareDisassembler:
         init_regs[ARM_REG_SP] = '{0:08x}'.format(start_stack_pointer)
         
         init_regs[ARM_REG_PC] = \
-            '{0:08x}'.format(reg_eval_obj.get_pc_value(trace_start))
+            '{0:08x}'.format(strand_exec_inst.get_pc_value(trace_start))
             
-        init_regs[comp_reg] = utils.convert_type(np.uint8(comp_val), 'hex')
+        hex_comp_value = utils.convert_type(np.uint8(comp_val), 'hex')
+        init_regs[comp_reg] = hex_comp_value.zfill(8)
         
         ## Initialise path.
         current_path = hex(trace_start)
         ## Initialise condition flags.
-        condition_flags = reg_eval_obj.initialise_condition_flags()
+        condition_flags = strand_exec_inst.initialise_condition_flags()
         
-        return (reg_eval_obj, init_regs, condition_flags, current_path)
+        return (strand_exec_inst, init_regs, condition_flags, current_path)
