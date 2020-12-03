@@ -317,6 +317,19 @@ def get_previous_partial_address(address_obj, address):
                 break
     return address
     
+def is_valid_code_address(address):
+    if address not in common_objs.disassembled_firmware:
+        return False
+    if address in common_objs.errored_instructions:
+        return False
+    if common_objs.disassembled_firmware[address]['is_data'] == True:
+        return False
+    if common_objs.disassembled_firmware[address]['insn'] == None:
+        return False    
+    if common_objs.disassembled_firmware[address]['insn'].id == ARM_INS_INVALID:
+        return False
+    return True
+    
 def order_dict(dictionary):
     """From https://stackoverflow.com/a/47882384."""
     return {k: order_dict(v) if isinstance(v, dict) else v

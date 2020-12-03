@@ -255,6 +255,14 @@ class FirmwareDisassembler:
         common_objs.code_end_address = all_addresses[-1]
         all_addresses = None
 
+        # Get the vector table addresses.
+        self.vector_table_addresses = []
+        for intrpt in common_objs.application_vector_table:
+            if intrpt == 'initial_sp':
+                continue
+            self.vector_table_addresses.append(
+                common_objs.application_vector_table[intrpt]
+            )
         # Add dummy keys, to handle Capstone issues.
         disassembled_firmware_with_dummy_keys = self.add_dummy_keys(
             common_objs.disassembled_firmware
@@ -274,7 +282,7 @@ class FirmwareDisassembler:
         
         # Check again for inline data, but this time using inline addresses.
         self.check_inline_address_instructions()
-        
+
         # Trace message.
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
@@ -300,6 +308,8 @@ class FirmwareDisassembler:
                                             insn.mnemonic,
                                             insn.op_str)
         logging.trace(trace_msg)
+        
+        self.vector_table_addresses = None
         
     def annotate_links(self):
         self.all_addresses = list(common_objs.disassembled_firmware.keys())
@@ -1550,16 +1560,18 @@ class FirmwareDisassembler:
                         all_addresses,
                         test_address
                     )
+                    if utils.is_valid_code_address(test_address) != True:
+                        continue
                     test_insn = common_objs.disassembled_firmware[test_address]['insn']
-                    if test_insn == None:
-                        continue
-                    if test_insn.id == 0:
-                        continue
                     # If the value loaded in register gets used in 
                     #  register-relative LDR, then the address is marked 
                     #  as containing data.
                     if test_insn.id == ARM_INS_LDR:
-                        if test_insn.operands[1].value.reg == ldr_target_register:
+                        if test_insn.operands[1].value.mem.base == ldr_target_register:
+                            is_target_address_data = True
+                            break
+                    elif test_insn.id == ARM_INS_BX:
+                        if test_insn.operands[0].value.reg == ldr_target_register:
                             is_target_address_data = True
                             break
                     # If the value loaded in register gets overwritten, 

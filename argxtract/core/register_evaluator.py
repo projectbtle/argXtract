@@ -20,9 +20,12 @@ from argxtract.common import objects as common_objs
 
 
 class RegisterEvaluator:
-    def __init__(self):
+    def __init__(self, perform_time_check=True):
         self.per_trace_start_time = None
         self.start_time = None
+        self.all_addresses = None
+        self.instruction_queue = collections.deque()
+        self.perform_time_check = perform_time_check
         
     def estimate_reg_values_for_trace_object(self, trace_obj, coi_processor_instance): 
         logging.info('Starting register trace.')
@@ -408,17 +411,11 @@ class RegisterEvaluator:
         return (None, None, None, None)
     
     def update_pc_register(self, ins_address, register_object):
-        if ins_address in common_objs.errored_instructions:
-            should_update_pc_value = True
-        elif common_objs.disassembled_firmware[ins_address]['is_data']:
+        if utils.is_valid_code_address(ins_address) != True:
             should_update_pc_value = True
         else:
             insn = common_objs.disassembled_firmware[ins_address]['insn']
-            if insn == None:
-                should_update_pc_value = True
-            elif insn.id == ARM_INS_INVALID:
-                should_update_pc_value = True
-            elif len(insn.operands) == 0:
+            if len(insn.operands) == 0:
                 should_update_pc_value = True
             else:
                 if ((insn.operands[0].type == ARM_OP_REG) 
@@ -913,9 +910,9 @@ class RegisterEvaluator:
         return condition_flags
             
     def check_skip_instruction(self, address):
-        address_object = common_objs.disassembled_firmware[address]
-        if address_object['is_data'] == True:
+        if utils.is_valid_code_address(address) != True:
             return True
+        address_object = common_objs.disassembled_firmware[address]
         if address_object['insn'].id in [ARM_INS_NOP, ARM_INS_INVALID]:
             return True
         if address_object['insn'].id in [ARM_INS_MOV, ARM_INS_MOVW]:
@@ -987,22 +984,6 @@ class RegisterEvaluator:
                 logging.debug('Path is looping. Breaking out.')
                 return (True, None)
         return (False, new_path)
-        
-    def check_neighbour_ins(self, start_address, end_address, ins_list):
-        address = start_address
-        is_required_insn = False
-        while address <= end_address:
-            if address not in common_objs.disassembled_firmware:
-                address = self.get_next_address(self.all_addresses, address)
-                continue
-            if (common_objs.disassembled_firmware[address]['is_data'] == True):
-                address = self.get_next_address(self.all_addresses, address)
-                continue
-            opcode_id = common_objs.disassembled_firmware[address]['insn'].id
-            if opcode_id in ins_list:
-                is_required_insn = True
-            address = self.get_next_address(self.all_addresses, address)
-        return is_required_insn
         
     #----------------  Table Branch-related ----------------
     def process_table_branch_instruction(self, register_object, memory_map,
@@ -1129,11 +1110,9 @@ class RegisterEvaluator:
         comp_address = None
         for i in range(5):
             address = utils.get_previous_address(self.all_addresses, address)
+            if utils.is_valid_code_address(address) != True:
+                continue
             prev_insn = common_objs.disassembled_firmware[address]
-            if prev_insn['is_data'] == True:
-                continue
-            if prev_insn['insn'] == None:
-                continue
             if prev_insn['insn'].id != ARM_INS_CMP:
                 continue
             if prev_insn['insn'].operands[0].value.reg != index_register:
@@ -1156,10 +1135,9 @@ class RegisterEvaluator:
         address = start_address
         while address < end_address:
             address = self.get_next_address(self.all_addresses, address)
-            add_ins = common_objs.disassembled_firmware[address]
-            if add_ins['is_data'] == True:
+            if utils.is_valid_code_address(address):
                 continue
-            insn = add_ins['insn']
+            insn = common_objs.disassembled_firmware[address]['insn']
             opcode_id = insn.id
             operands = insn.operands
             if opcode_id not in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX,
@@ -4707,7 +4685,9 @@ class RegisterEvaluator:
         return False
         
     def time_check(self):
-        """Check if elapsed time is greater than max alowable runtime. """
+        """Check if elapsed time is greater than max allowable runtime. """
+        if self.perform_time_check == False:
+            return False
         if common_objs.per_trace_max_time != 0:
             per_trace_elapsed_time = timeit.default_timer() - self.per_trace_start_time
             if (per_trace_elapsed_time >= common_objs.per_trace_max_time):

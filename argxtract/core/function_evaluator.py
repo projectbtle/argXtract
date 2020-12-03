@@ -105,7 +105,7 @@ class FunctionEvaluator:
                 debug_msg += '\t\t\t\t' + hex(item) +'\n'
         logging.trace(debug_msg)
         common_objs.function_blocks = function_blocks
-
+        input()
         # Populate xref to.
         # We do this after assigning previous to common_objs,
         #  in order to be able to utilise the id_function_block_for_instruction
@@ -132,10 +132,9 @@ class FunctionEvaluator:
             if address == None: break
             if address > fb_end: break
             if address in common_objs.errored_instructions: break
-            at_address = common_objs.disassembled_firmware[address]
-            if at_address['is_data'] == True:
+            if utils.is_valid_code_address(address) != True:
                 continue
-            insn = at_address['insn']
+            insn = common_objs.disassembled_firmware[address]['insn']
             if insn.id in [ARM_INS_B, ARM_INS_BL]:
                 branch_target = insn.operands[0].value.imm
                 end_func_block = utils.id_function_block_for_instruction(
@@ -189,6 +188,7 @@ class FunctionEvaluator:
             function_block_start_addresses.append(
                 common_objs.application_vector_table[intrpt]
             )
+
         # Add self-targeting branches.
         #for ins_address in common_objs.self_targeting_branches:
         #    function_block_start_addresses.append(ins_address)
@@ -200,17 +200,14 @@ class FunctionEvaluator:
         )
         functions = []
         for ins_address in common_objs.disassembled_firmware:
-            if ins_address in common_objs.errored_instructions:
-                continue
             if ins_address < common_objs.code_start_address:
                 continue
             if ins_address > common_objs.code_end_address:
                 break
             # If it's data, rather than an instruction, then there is no use
             #  in continuing.
-            if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
-                continue
-                
+            if utils.is_valid_code_address(ins_address) != True:
+                continue  
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             opcode_id = insn.id
             
@@ -246,6 +243,7 @@ class FunctionEvaluator:
             # If the branch to is POP, or branch, then more likely to be
             #  internal branch.
             insn = common_objs.disassembled_firmware[branch_address]['insn']
+            if insn == None: continue
             if insn.id in [ARM_INS_POP, ARM_INS_B, ARM_INS_BL, 
                     ARM_INS_BLX, ARM_INS_BX]:
                 continue
@@ -273,16 +271,15 @@ class FunctionEvaluator:
         return function_block_start_addresses
 
     def check_fb_candidate_high_certainty(self, disassembled_fw, branch_address):
-        if branch_address in common_objs.errored_instructions:
-            return False
-        if disassembled_fw[branch_address]['is_data'] == True:
+        if utils.is_valid_code_address(branch_address) != True:
             return False
             
         insn = disassembled_fw[branch_address]['insn']
+
         if insn.id == ARM_INS_PUSH:
             return True
             
-        if insn.mnemonic == ARM_INS_SUB:
+        if insn.id == ARM_INS_SUB:
             ops = insn.operands
             reg = ops[0].value.reg
             if reg == ARM_REG_SP:
@@ -371,16 +368,12 @@ class FunctionEvaluator:
                 if address == None: break
                 continue
             fw_bytes = common_objs.disassembled_firmware[address]
-            
+                
             # If we've got to a point that is data, then there must be
             # a way to skip over it (within a function).
             potential_end = False
-            if fw_bytes['is_data'] == True:
-                potential_end = True
-            elif fw_bytes['insn'] == None:
-                potential_end = True
-            elif fw_bytes['insn'].id == ARM_INS_INVALID:
-                insn = fw_bytes['insn']
+            is_valid_code_address = utils.is_valid_code_address(address)
+            if is_valid_code_address != True:
                 potential_end = True
             else:
                 # Logical exit points for a function are bx, pop-pc and 
@@ -393,7 +386,7 @@ class FunctionEvaluator:
                     potential_end = True
                     
             # This is needed here because of unconditional branches.
-            if fw_bytes['is_data'] != True:
+            if (is_valid_code_address == True):
                 if ((insn.id == ARM_INS_B) and (insn.cc == ARM_CC_AL)):
                     branch_target = operands[0].value.imm
                     if address not in branches:
@@ -443,22 +436,23 @@ class FunctionEvaluator:
                         address = common_objs.replace_functions[original_address]['table_branch_max']
                     else:
                         address = utils.get_next_address(self.all_addresses, address)
-            elif insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
-                original_address = address
-                if original_address in common_objs.table_branches:
-                    table_branch_addresses = \
-                        common_objs.table_branches[original_address]['table_branch_addresses']
-                    address = common_objs.table_branches[original_address]['table_branch_max']
-                    is_candidate_address = True
-            # Look at all the branch instructions.
-            elif insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
-                if (insn.id == ARM_INS_B):
-                    branch_target = operands[0].value.imm
-                else:
-                    branch_target = operands[1].value.imm
-                if (branch_target <= end):
-                    if address not in branches:
-                        branches[address] = [branch_target]
+            elif is_valid_code_address == True:
+                if insn.id in [ARM_INS_TBB, ARM_INS_TBH]:
+                    original_address = address
+                    if original_address in common_objs.table_branches:
+                        table_branch_addresses = \
+                            common_objs.table_branches[original_address]['table_branch_addresses']
+                        address = common_objs.table_branches[original_address]['table_branch_max']
+                        is_candidate_address = True
+                # Look at all the branch instructions.
+                elif insn.id in [ARM_INS_B, ARM_INS_CBNZ, ARM_INS_CBZ]:
+                    if (insn.id == ARM_INS_B):
+                        branch_target = operands[0].value.imm
+                    else:
+                        branch_target = operands[1].value.imm
+                    if (branch_target <= end):
+                        if address not in branches:
+                            branches[address] = [branch_target]
 
             # If we've marked an ARM_SWITCH8, GNU_THUMB or TBB/TBH, 
             #  then process the table.
@@ -501,6 +495,12 @@ class FunctionEvaluator:
                     break
                 continue
             insn = common_objs.disassembled_firmware[address]['insn']
+            if insn == None: 
+                address = utils.get_next_address(self.all_addresses, address)
+                start = address
+                if address == None:
+                    break
+                continue
             if insn.id == ARM_INS_INVALID:
                 break
             if self.check_for_nop(insn.id, insn.operands) == True:
@@ -514,6 +514,7 @@ class FunctionEvaluator:
     
     def check_is_valid_exit(self, ins_address, start, end):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
+        if insn == None: return True
         if insn.id == ARM_INS_BX:
             return True
         if insn.id == ARM_INS_POP:
@@ -532,17 +533,6 @@ class FunctionEvaluator:
                 if target_address_int < ins_address:
                     return True
         return False
-    
-    def check_preexisting_block(self, function_block_start_addresses,
-                                address, boundary=10):
-        preexists = False
-        function_block_start_addresses.sort()
-        for existing_candidate_address in function_block_start_addresses:
-            lower_bound = existing_candidate_address - boundary
-            upper_bound = existing_candidate_address + boundary
-            if (address > lower_bound) and (address < upper_bound):
-                preexists = True
-        return preexists
     
     #----------------- Find special functions ---------------------
     def perform_function_pattern_matching(self):
@@ -744,13 +734,9 @@ class FunctionEvaluator:
         #  of registers.
         original_registers = copy.deepcopy(registers)
         for iaddress in ins_order:
-            if iaddress in common_objs.errored_instructions:
+            if utils.is_valid_code_address(iaddress) != True:
                 continue
             instruction = common_objs.disassembled_firmware[iaddress]['insn']
-            if instruction == None:
-                continue
-            if common_objs.disassembled_firmware[iaddress]['is_data'] == True:
-                continue
             operands = instruction.operands
             if instruction.id in [ARM_INS_MOV, ARM_INS_MOVW]:
                 src_operand = operands[1].value.reg
@@ -819,7 +805,8 @@ class FunctionEvaluator:
         address = start_address
         while address <= end_of_block:
             if ((address in common_objs.errored_instructions) 
-                    or (common_objs.disassembled_firmware[address]['is_data'] == True)):
+                    or (common_objs.disassembled_firmware[address]['is_data'] == True)
+                    or (common_objs.disassembled_firmware[address]['insn'] == None)):
                 address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
@@ -900,18 +887,11 @@ class FunctionEvaluator:
             
         address = fb_start_address
         while ((address != None) and (address <= fb_end_address)):
-            if address not in common_objs.disassembled_firmware:
+            if utils.is_valid_code_address(address) != True:
                 address = utils.get_next_address(self.all_addresses, address)
                 if address == None: break
                 continue
-            if address in common_objs.errored_instructions:
-                address = utils.get_next_address(self.all_addresses, address)
-                if address == None: break
-                continue
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                address = utils.get_next_address(self.all_addresses, address)
-                if address == None: break
-                continue
+            
             at_address = common_objs.disassembled_firmware[address]
             insn = at_address['insn']
             if insn.id in [ARM_INS_DSB, ARM_INS_DMB]:
@@ -929,33 +909,3 @@ class FunctionEvaluator:
             address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
         return False
-        
-    def check_all_nop_error(self, start_address, end_address):
-        all_nop_error = True
-        address = start_address
-        while ((address != None) and (address < end_address)):
-            if address not in common_objs.disassembled_firmware:
-                address = utils.get_next_address(self.all_addresses, address)
-                if address == None: break
-                continue
-            if address in common_objs.errored_instructions:
-                address = utils.get_next_address(self.all_addresses, address)
-                if address == None: break
-                continue
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
-                address = utils.get_next_address(self.all_addresses, address)
-                if address == None: break
-                continue
-            insn = common_objs.disassembled_firmware[address]['insn']
-            opcode = insn.id
-            operands = insn.operands
-            is_nop_error = self.check_for_nop_or_error(
-                address,
-                opcode,
-                operands
-            )
-            if is_nop_error == False:
-                all_nop_error = False
-            address = utils.get_next_address(self.all_addresses, address)
-            if address == None: break
-        return all_nop_error
