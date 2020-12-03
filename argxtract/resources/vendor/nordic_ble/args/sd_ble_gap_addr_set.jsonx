@@ -1,0 +1,39 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "data": {
+                "p_privacy_params": {
+                    "ptr_val": "value",
+                    "length_bits": 16,
+                    "type": "dict",
+                    "data": {
+                        "addr_data": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "bitfield",
+                            "data": {
+                                "addr_type": {
+                                    "ptr_val": "value",
+                                    "length_bits": 7,
+                                    "type": "uint8"
+                                },
+                                "addr_id_peer": {
+                                    "ptr_val": "value",
+                                    "length_bits": 1,
+                                    "type": "uint8"
+                                }
+                            }
+                        },
+                        "addr": {
+                            "ptr_val": "pointer",
+                            "length_bits": 48,
+                            "type": "hex"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

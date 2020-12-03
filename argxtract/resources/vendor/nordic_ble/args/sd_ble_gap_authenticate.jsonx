@@ -3,7 +3,6 @@
         "0": {
             "in_out": "in",
             "ptr_val": "value",
-            "length": 2,
             "data": {
                 "conn_handle": {
                     "ptr_val": "value",
@@ -15,7 +14,6 @@
         "1": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 5,
             "data": {
                 "p_sec_params": {
                     "ptr_val": "value",

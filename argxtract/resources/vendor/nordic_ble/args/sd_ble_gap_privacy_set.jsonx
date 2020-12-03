@@ -1,0 +1,37 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "data": {
+                "p_privacy_params": {
+                    "ptr_val": "value",
+                    "length_bits": 64,
+                    "type": "dict",
+                    "data": {
+                        "privacy_mode": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "uint8"
+                        },
+                        "private_addr_type": {
+                            "ptr_val": "value",
+                            "length_bits": 8,
+                            "type": "uint8"
+                        },
+                        "private_addr_cycle_s": {
+                            "ptr_val": "value",
+                            "length_bits": 16,
+                            "type": "uint16"
+                        },
+                        "p_device_irk": {
+                            "ptr_val": "pointer",
+                            "length_bits": 128,
+                            "type": "hex"
+                        }
+                    }
+                
+            }
+        }
+    }
+}

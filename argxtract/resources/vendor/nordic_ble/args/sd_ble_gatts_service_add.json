@@ -3,7 +3,6 @@
         "0": {
             "in_out": "in",
             "ptr_val": "value",
-            "length": 1,
             "data": {
                 "type": {
                     "ptr_val": "value",
@@ -15,7 +14,6 @@
         "1": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 3,
             "data": {
                 "p_uuid": {
                     "ptr_val": "value",
@@ -39,7 +37,6 @@
         "2": {
             "in_out": "out",
             "ptr_val": "pointer",
-            "length": 2,
             "data": {
                 "p_handle": {
                     "ptr_val": "pointer",

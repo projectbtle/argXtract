@@ -3,7 +3,6 @@
         "0": {
             "in_out": "in",
             "ptr_val": "value",
-            "length": 2,
             "data": {
                 "service_handle": {
                     "ptr_val": "value",
@@ -15,7 +14,6 @@
         "1": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 16,
             "data": {
                 "p_char_md": {
                     "ptr_val": "value",
@@ -338,7 +336,6 @@
         "2": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 18,
             "data": {
                 "p_attr_char_value": {
                     "ptr_val": "value",
@@ -456,7 +453,6 @@
         "3": {
             "in_out": "out",
             "ptr_val": "pointer",
-            "length": 8,
             "data": {
                 "p_handles": {
                     "ptr_val": "value",

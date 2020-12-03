@@ -3,7 +3,6 @@
         "0": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 1,
             "data": {
                 "p_write_perm": {
                     "ptr_val": "value",
@@ -27,7 +26,6 @@
         "1": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 31,
             "data": {
                 "p_dev_name": {
                     "ptr_val": "value",
@@ -39,7 +37,6 @@
         "2": {
             "in_out": "in",
             "ptr_val": "value",
-            "length": 2,
             "data": {
                 "len": {
                     "ptr_val": "value",

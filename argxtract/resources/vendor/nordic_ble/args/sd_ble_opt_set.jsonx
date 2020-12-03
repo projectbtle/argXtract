@@ -3,7 +3,6 @@
         "0": {
             "in_out": "in",
             "ptr_val": "value",
-            "length": 4,
             "data": {
                 "opt_id": {
                     "ptr_val": "value",
@@ -15,7 +14,6 @@
         "1": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 6,
             "data": {
                 "p_opt": {
                     "ptr_val": "pointer",

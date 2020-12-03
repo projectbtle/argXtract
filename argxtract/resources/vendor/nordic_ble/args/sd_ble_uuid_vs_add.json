@@ -3,7 +3,6 @@
         "0": {
             "in_out": "in",
             "ptr_val": "pointer",
-            "length": 16,
             "data": {
                 "p_vs_uuid": {
                     "ptr_val": "value",
@@ -17,7 +16,6 @@
             "in_out": "custom_out",
             "ptr_val": "pointer",
             "memory_offset": -2,
-            "length": 2,
             "data": {
                 "p_uuid": {
                     "ptr_val": "value",
