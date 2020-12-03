@@ -105,7 +105,7 @@ class FunctionEvaluator:
                 debug_msg += '\t\t\t\t' + hex(item) +'\n'
         logging.trace(debug_msg)
         common_objs.function_blocks = function_blocks
-        input()
+
         # Populate xref to.
         # We do this after assigning previous to common_objs,
         #  in order to be able to utilise the id_function_block_for_instruction

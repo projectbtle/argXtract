@@ -77,6 +77,14 @@ def convert_type(value, dtype, byte_length='default'):
     elif dtype == 'hex':
         if type(value) is str:
             value = value
+        elif type(value) is np.int8:
+            value = '{0:02x}'.format(value)
+        elif type(value) is np.uint8:
+            value = '{0:02x}'.format(value)
+        elif type(value) is np.int16:
+            value = '{0:04x}'.format(value)
+        elif type(value) is np.uint16:
+            value = '{0:04x}'.format(value)
         elif type(value) is np.int32:
             value = '{0:08x}'.format(value)
         elif type(value) is np.uint32:
