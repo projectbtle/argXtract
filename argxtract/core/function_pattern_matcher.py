@@ -851,7 +851,20 @@ class FunctionPatternMatcher:
             num_test_sets = 2
         
         if num_test_sets == 2:
-            pass
+            test_set['set1'] = {}
+            for reg in pattern_sections['input_registers']:
+                test_set['set1'][reg] = random.randint(1,9)
+            test_set['set2'] = test_set['set1']
+            comp_value = int(pattern_sections['branch']['value'].replace('imm',''))
+            comp_reg = pattern_sections['branch']['register']
+            comp_cc = pattern_sections['branch']['condition']
+            if comp_cc in [ARM_CC_EQ, ARM_CC_NE]:
+                test_set['set1'][comp_reg] = comp_value
+                test_set['set2'][comp_reg] = comp_value + 2
+            else:
+                test_set['set1'][comp_reg] = comp_value - 2
+                test_set['set2'][comp_reg] = comp_value + 2
+            return test_set
         
         test_set['set1'] = {}
         for reg in pattern_sections['input_registers']:
