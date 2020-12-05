@@ -172,6 +172,7 @@ class CoiProcessor:
         
         # For each call to the COI, get the call chain.
         for starting_point in starting_points:
+            logging.trace('Getting chains for ' + starting_point)
             self.get_chain(starting_point, '', all_coi_chains, fblock_list)
         
         if len(all_coi_chains) == 0:
