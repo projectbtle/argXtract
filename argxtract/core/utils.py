@@ -41,7 +41,7 @@ def id_function_block_end(function_block_start):
         next_function_index = all_addresses.index(next_function_start)
         block_end = all_addresses[next_function_index-1]
     else:
-        block_end = all_addresses[-1]
+        block_end = common_objs.code_end_address
     return block_end
     
 def sort_dict_keys(dictionary):
