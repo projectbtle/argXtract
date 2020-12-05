@@ -284,10 +284,13 @@ class FirmwareDisassembler:
         self.check_inline_address_instructions()
 
         # Trace message.
+        logging.trace('Regenerating instructions.')
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         trace_msg = 'Final instructions: \n'
         for address in common_objs.disassembled_firmware:
+            if address > common_objs.code_end_address:
+                break
             if common_objs.disassembled_firmware[address]['is_data'] == True:
                 next_address = utils.get_next_address(all_addresses, address)
                 if next_address == None: next_address = address + 2
@@ -397,7 +400,6 @@ class FirmwareDisassembler:
 
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
-        max_address = all_addresses[-1]
         
         # Read in data from the Reset Handler.
         self.identify_data_segment_via_reset_handler()
@@ -467,7 +469,6 @@ class FirmwareDisassembler:
                             continue
                     ins_address = self.handle_data_pc(ins_address)
                     continue
-            
 
     def handle_data_byte(self, ins_address):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
@@ -1376,6 +1377,7 @@ class FirmwareDisassembler:
         common_objs.code_end_address = potential_code_end
     
     def estimate_end_of_app_code(self):
+        logging.trace('Estimating end of app code.')
         start_of_code = common_objs.code_start_address-common_objs.app_code_base
         app_code_bytes = common_objs.core_bytes[start_of_code:]
         code_split = app_code_bytes.split(
@@ -1515,12 +1517,18 @@ class FirmwareDisassembler:
         return True
     
     def check_inline_address_instructions(self):
-        logging.debug('Checking for presence of inline addresses.')
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         min_address = all_addresses[0]
-        max_address = all_addresses[-1]
+        max_address = common_objs.code_end_address
         ins_address = common_objs.code_start_address - 2
+        logging.debug(
+            'Checking for presence of inline addresses '
+            + 'starting from '
+            + hex(ins_address)
+            + ' and ending '
+            + hex(max_address)
+        )
         while ins_address < common_objs.code_end_address:
             ins_address = utils.get_next_address(
                 all_addresses,
@@ -1681,7 +1689,22 @@ class FirmwareDisassembler:
                     + '. Adding to errored instructions.'
                 )
             return disassembled_fw
-        
+        # If it was a BL to BL, it's unlikely to be correct.
+        if (disassembled_fw[branch_address]['insn'].id 
+                in [ARM_INS_POP, ARM_INS_BL, ARM_INS_B,
+                    ARM_INS_BLX, ARM_INS_BX]):
+            if insn.id == ARM_INS_BL:
+                if ins_address not in common_objs.errored_instructions:
+                    common_objs.errored_instructions.append(ins_address)
+                    logging.trace(
+                        'Branch target of BL ('
+                        + hex(branch_address)
+                        + ') is unlikely (BL/POP/etc) '
+                        + 'for call at '
+                        + hex(ins_address)
+                        + '. Adding to errored instructions.'
+                    )
+                return disassembled_fw
         # Add back-links to disassembled firmware object. 
         if 'xref_from' not in disassembled_fw[branch_address]:
             disassembled_fw[branch_address]['xref_from'] = []
