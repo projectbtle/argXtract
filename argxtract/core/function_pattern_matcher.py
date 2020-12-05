@@ -373,6 +373,9 @@ class FunctionPatternMatcher:
             # UNSUPPORTED returns TRUE
             return True
             
+        if common_objs.function_blocks[function_start]['call_depth'] > 0:
+            return True
+            
         # We don't support more than one conditional operation.
         num_conditionals = 0
         address = function_start-2
@@ -389,10 +392,6 @@ class FunctionPatternMatcher:
                     and (insn.cc != ARM_CC_AL) 
                     and (insn.cc != ARM_CC_INVALID)):
                 num_conditionals += 1
-            elif insn.id == ARM_INS_BL:
-                # We don't support external function calls.
-                # UNSUPPORTED returns TRUE
-                return True
                 
         if num_conditionals > 1:
             # UNSUPPORTED returns TRUE
@@ -830,33 +829,75 @@ class FunctionPatternMatcher:
             + str(function_exec_object)        
         )
         for test_set in self.test_sets:
-            if (pattern_exec_obj[test_set]['mem'] != 
-                    function_exec_object[test_set]['mem']):
-                logging.trace('Memory contents don\'t match')
+            pattern_memory_obj = pattern_exec_obj[test_set]['mem']
+            function_memory_obj = function_exec_object[test_set]['mem']
+            if self.compare_memory_objects(pattern_memory_obj, function_memory_obj) == False:
+                logging.trace(
+                    'Memory contents don\'t match for test set '
+                    + str(test_set)
+                )
                 return False
-            for reg_idx in range(10):
-                if (pattern_exec_obj[test_set]['reg'][66+reg_idx] != 
-                        function_exec_object[test_set]['reg'][66+reg_idx]):
-                    logging.trace('Register contents don\'t match')
-                    return False
+            pattern_register_obj = pattern_exec_obj[test_set]['reg']
+            function_register_obj = function_exec_object[test_set]['reg']
+            if self.compare_register_objects(pattern_register_obj, function_register_obj) == False:
+                logging.trace(
+                    'Register contents don\'t match for test set '
+                    + str(test_set)
+                )
+                return False
         return True
 
+    def compare_memory_objects(self, pattern_memory_obj, function_memory_obj):
+        pattern_keys = list(pattern_memory_obj.keys())
+        function_keys = list(function_memory_obj.keys())
+        if len(pattern_keys) == 0:
+            if len(function_keys) == 0:
+                return True
+            else:
+                return False
+        pattern_base = min(pattern_keys)
+        function_base = min(function_keys)
+        for i in range(len(pattern_keys)):
+            if (pattern_memory_obj[pattern_base+i] != 
+                    function_memory_obj[function_base+i]):
+                return False
+        return True
+                
+    def compare_register_objects(self, pattern_register_obj, function_register_obj):
+        for reg_idx in range(4):
+            if (pattern_register_obj[66+reg_idx] != 
+                    function_register_obj[66+reg_idx]):
+                return False
+        return True
+    
     def generate_test_sets(self, pattern_sections):
         test_set = {}
         if pattern_sections['branch']['value'] == None:
-            num_test_sets = 1
+            comp_value_check = False
         elif (not (pattern_sections['branch']['value'].startswith('imm'))):
-            num_test_sets = 1
+            comp_value_check = False
         else:
-            num_test_sets = 2
+            logging.trace('Register value is checked against IMM.')
+            comp_value_check = True
         
-        if num_test_sets == 2:
-            test_set['set1'] = {}
+        # Generate 5 sets.
+        for i in range(5):
+            setname = 'set' + str(i)
+            test_set[setname] = {}
             for reg in pattern_sections['input_registers']:
-                test_set['set1'][reg] = random.randint(1,9)
+                if i == 0:
+                    # An all-0 register set.
+                    test_set[setname][reg] = 0
+                else:
+                    test_set[setname][reg] = random.randint(1,9)
+
+        # If a comparison is made against one of the registers,
+        #  then we need two sets: one that satisfies the condition
+        #  and one that doesn't.
+        if comp_value_check == True:
             test_set['set2'] = test_set['set1']
             comp_value = int(pattern_sections['branch']['value'].replace('imm',''))
-            comp_reg = pattern_sections['branch']['register']
+            comp_reg = int((pattern_sections['branch']['register']).replace('reg',''))
             comp_cc = pattern_sections['branch']['condition']
             if comp_cc in [ARM_CC_EQ, ARM_CC_NE]:
                 test_set['set1'][comp_reg] = comp_value
@@ -864,11 +905,8 @@ class FunctionPatternMatcher:
             else:
                 test_set['set1'][comp_reg] = comp_value - 2
                 test_set['set2'][comp_reg] = comp_value + 2
-            return test_set
-        
-        test_set['set1'] = {}
-        for reg in pattern_sections['input_registers']:
-            test_set['set1'][reg] = random.randint(1,9)
+
+        logging.trace('Generated test set: ' + str(test_set))
         return test_set
         
     def symbolically_execute(self, exec_input_object, exec_instruction_object):
