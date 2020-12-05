@@ -114,7 +114,7 @@ class FunctionEvaluator:
         for fb_start_address in function_blocks:
             end = function_blocks[fb_start_address]['end']
             if end == 'END':
-                end = all_addresses[-1]
+                end = common_objs.code_end_address
             xref_to = self.get_xref_to(fb_start_address, end)
             function_blocks[fb_start_address]['xref_to'] = xref_to
         common_objs.function_blocks = function_blocks
@@ -180,7 +180,14 @@ class FunctionEvaluator:
     def add_basic_functions(self, function_block_start_addresses):
         # Add very first address.
         minimum_possible_address = common_objs.code_start_address
-        function_block_start_addresses.append(minimum_possible_address)
+        # It's possible that a __data_section_table or
+        #  __bss_section_table is present immediately after the 
+        #  vector table.
+        if utils.is_valid_code_address(minimum_possible_address) == True:
+            min_addr = common_objs.disassembled_firmware[minimum_possible_address]
+            if min_addr['insn'].id not in [ARM_INS_POP, ARM_INS_BL, ARM_INS_B,
+                    ARM_INS_BLX, ARM_INS_BX]:
+                function_block_start_addresses.append(minimum_possible_address)
         # Add interrupt addresses.
         for intrpt in common_objs.application_vector_table:
             if intrpt == 'initial_sp':
@@ -242,9 +249,10 @@ class FunctionEvaluator:
             
             # If the branch to is POP, or branch, then more likely to be
             #  internal branch.
-            insn = common_objs.disassembled_firmware[branch_address]['insn']
-            if insn == None: continue
-            if insn.id in [ARM_INS_POP, ARM_INS_B, ARM_INS_BL, 
+            branch_insn = common_objs.disassembled_firmware[branch_address]['insn']
+            if branch_insn == None: continue
+            
+            if branch_insn.id in [ARM_INS_POP, ARM_INS_B, ARM_INS_BL, 
                     ARM_INS_BLX, ARM_INS_BX]:
                 continue
             
@@ -252,9 +260,9 @@ class FunctionEvaluator:
                 is_candidate = True
             else:
                 is_candidate = self.check_fb_candidate_high_certainty(
-                        common_objs.disassembled_firmware,
-                        branch_address
-                    )
+                    common_objs.disassembled_firmware,
+                    branch_address
+                )
 
             if is_candidate != True:
                 continue
@@ -283,6 +291,13 @@ class FunctionEvaluator:
             ops = insn.operands
             reg = ops[0].value.reg
             if reg == ARM_REG_SP:
+                return True
+                
+        if insn.id == ARM_INS_STMDB:
+            ops = insn.operands
+            reg1 = ops[0].value.reg
+            reglast = ops[-1].value.reg
+            if ((reg1 == ARM_REG_SP) and (reglast == ARM_REG_LR)):
                 return True
         return False
                 
@@ -313,7 +328,7 @@ class FunctionEvaluator:
         while idx < num_functions:
             fblock_start = function_block_start_addresses[idx]
             if idx == (num_functions-1):
-                current_fblock_end = self.all_addresses[-1]
+                current_fblock_end = common_objs.code_end_address
             else:
                 all_address_index = self.all_addresses.index(
                     function_block_start_addresses[idx+1]
@@ -877,7 +892,8 @@ class FunctionEvaluator:
     def check_function_to_denylist(self, fb_start_address, func_block):
         """Check whether a function block should be excluded from traces."""
         fb_end_address = func_block['end']
-        if fb_end_address == 'END': fb_end_address = self.all_addresses[-1]
+        if fb_end_address == 'END': 
+            fb_end_address = common_objs.code_end_address
         logging.trace(
             'Testing function block beginning at '
             + hex(fb_start_address)
