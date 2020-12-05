@@ -266,7 +266,7 @@ class RegisterEvaluator:
         # Start from the starting point within assembly,
         #  and follow the instructions along the chain.
         ins_address = start_point
-        code_end = self.all_addresses[-1]
+        code_end = common_objs.code_end_address
         while ins_address <= code_end:
             register_object[ARM_REG_PC] = self.get_pc_value(ins_address)
         
@@ -4265,7 +4265,7 @@ class RegisterEvaluator:
             return consts.ADDRESS_RAM
         # Firmware.
         start_fw_address = self.all_addresses[0]
-        end_fw_address = self.all_addresses[-1]
+        end_fw_address = common_objs.code_end_address
         if ((address >= start_fw_address) 
                 and (address <= end_fw_address)):
             return consts.ADDRESS_FIRMWARE
