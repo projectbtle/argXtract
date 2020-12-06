@@ -575,6 +575,8 @@ class FunctionEvaluator:
     def check_is_valid_exit(self, ins_address, start, end):
         insn = common_objs.disassembled_firmware[ins_address]['insn']
         if insn == None: return True
+        if insn.cc != ARM_CC_AL:
+            return False
         if insn.id == ARM_INS_BX:
             return True
         if insn.id == ARM_INS_POP:
@@ -583,15 +585,14 @@ class FunctionEvaluator:
             if final_operand.value.reg == ARM_REG_PC:
                 return True
         if insn.id == ARM_INS_B:
-            if insn.cc == ARM_CC_AL:
-                target_address_int = insn.operands[0].value.imm
-                # Self-targeting branches would be a potential end.
-                if target_address_int == ins_address:
-                    return True
-                # Any unconditional branch to lower address or outside the function
-                #  block would be an end.
-                if ((target_address_int < ins_address) or (target_address_int > end)):
-                    return True
+            target_address_int = insn.operands[0].value.imm
+            # Self-targeting branches would be a potential end.
+            if target_address_int == ins_address:
+                return True
+            # Any unconditional branch to lower address or outside the function
+            #  block would be an end.
+            if ((target_address_int < ins_address) or (target_address_int > end)):
+                return True
         return False
     
     #----------------- Find special functions ---------------------
