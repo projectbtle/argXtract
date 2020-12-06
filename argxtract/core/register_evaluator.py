@@ -1038,7 +1038,13 @@ class RegisterEvaluator:
             branch_address = table_branch_addresses[actual_value]
             
         if branch_address not in common_objs.disassembled_firmware:
-            logging.critical(
+            if branch_address == None:
+                logging.error(
+                    'Null branch address for table branch at '
+                    + hex(ins_address)
+                )
+                return
+            logging.error(
                 'Unable to index into table. '
                 + 'Address: '
                 + hex(branch_address)
