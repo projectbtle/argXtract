@@ -454,6 +454,8 @@ class FunctionEvaluator:
             if potential_end == True:
                 skip_end = False
                 for branch_pt in branches:
+                    if branch_pt == address:
+                        continue
                     targets = branches[branch_pt]
                     for target in targets:
                         if target > address:
