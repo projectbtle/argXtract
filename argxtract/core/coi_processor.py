@@ -56,6 +56,8 @@ class CoiProcessor:
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
+            if ins_address > common_objs.code_end_address:
+                break
             if ins_address in common_objs.errored_instructions:
                 continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
