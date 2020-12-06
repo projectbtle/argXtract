@@ -15,6 +15,7 @@ from multiprocessing import Process, JoinableQueue, active_children
 class argxtract:
     def __init__(self):
         self.vendor = None
+        self.function_folder = None
         self.mode = consts.MODE_SVC
         self.processes = 1
         self.bypass = False
@@ -97,13 +98,6 @@ class argxtract:
             help = 'maximum trace time per file in seconds.'
         )
         self.argparser.add_argument(
-            '-m',
-            '--max_call_depth',
-            type = int,
-            action = 'store',
-            help = 'maximum call depth of a function to be included in trace.'
-        )
-        self.argparser.add_argument(
             '-M',
             '--Mode',
             type = str,
@@ -129,6 +123,20 @@ class argxtract:
             type = int,
             action = 'store',
             help = 'number of parallel processes ("threads") to use.'
+        )
+        self.argparser.add_argument(
+            '-F',
+            '--Functions',
+            type = str,
+            action = 'store',
+            help = 'save function list to folder and exit.'
+        )
+        self.argparser.add_argument(
+            '-m',
+            '--max_call_depth',
+            type = int,
+            action = 'store',
+            help = 'maximum call depth of a function to be included in trace.'
         )
         self.argparser.add_argument(
             '-n',
@@ -244,7 +252,13 @@ class argxtract:
                 self.mode = consts.MODE_FUNCTION
             else:
                 self.mode  = consts.MODE_SVC
-                
+        
+        if args.Functions:
+            if (not (os.path.isdir(args.Functions))):
+                print('Function folder does not exist!')
+                sys.exit(0)
+            self.function_folder = args.Functions
+            
         if args.processes:
             if args.processes > 0:
                 self.processes = args.processes
@@ -301,6 +315,7 @@ class argxtract:
             self.vendor, 
             self.max_time,
             self.per_trace_max_time,
+            self.function_folder,
             self.max_call_depth,
             self.loglevel,
             self.null_handling,
@@ -323,6 +338,9 @@ class argxtract:
             if output == None:
                 outfile.write(fw_file + ',None\n')
                 outfile.flush()
+                continue
+            if self.function_folder != None:
+                continue
             # Write to file.
             with open(outputfilename, 'w') as f: 
                 json.dump(output, f, indent=4)
@@ -359,6 +377,7 @@ class argxtract:
                 self.vendor, 
                 self.max_time,
                 self.per_trace_max_time,
+                self.function_folder,
                 self.max_call_depth,
                 self.loglevel,
                 self.null_handling,
@@ -414,6 +433,7 @@ class argxtract:
                             self.vendor, 
                             self.max_time,
                             self.per_trace_max_time,
+                            self.function_folder,
                             self.max_call_depth,
                             self.loglevel,
                             self.null_handling,
@@ -443,13 +463,14 @@ class argxtract:
             
 
 class argxtractWorker:
-    def __init__(self, mode, vendor, max_time, per_trace_max_time, max_call_depth, 
-            loglevel, null_handling, bypass):
+    def __init__(self, mode, vendor, max_time, per_trace_max_time, function_folder, 
+            max_call_depth, loglevel, null_handling, bypass):
         self.mode = mode
         self.vendor = vendor
         self.bypass = bypass
         self.max_time = max_time
         self.per_trace_max_time = per_trace_max_time
+        self.function_folder = function_folder
         self.max_call_depth = max_call_depth
         self.loglevel = loglevel
         self.null_handling = null_handling
@@ -461,13 +482,14 @@ class argxtractWorker:
             self.vendor, 
             self.max_time,
             self.per_trace_max_time,
+            self.function_folder,
             self.max_call_depth,
             self.loglevel,
             self.null_handling,
             self.bypass,
             process_id
         )
-        
+
         # Get job from queue.
         for queue_input in iter(in_queue.get, 'STOP'):
             filename = str(queue_input).strip()
@@ -488,10 +510,16 @@ class argxtractWorker:
                 output = firmware_analyser.analyse_firmware(filename)
                 # If no output, but no error.
                 if output == None:
-                    out_queue.put(filename 
+                    if self.function_folder != None:
+                        out_queue.put(filename 
                                       + "," 
-                                      + "None"
+                                      + "FunctionsSaved"
                                   )
+                    else:
+                        out_queue.put(filename 
+                                          + "," 
+                                          + "None"
+                                      )
                     in_queue.task_done()
                     sleep(2)
                     continue

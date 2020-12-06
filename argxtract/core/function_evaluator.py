@@ -15,7 +15,7 @@ class FunctionEvaluator:
     def __init__(self):
         pass
         
-    def estimate_function_blocks(self):
+    def estimate_function_blocks(self, store_path=None):
         logging.info(
             'Performing function block analyses.'
         )
@@ -99,13 +99,23 @@ class FunctionEvaluator:
             + str(len(list(function_blocks.keys())))
             + ' function blocks.'
         )
-        if len(list(function_blocks.keys())) > 0:
+        list_fblocks = list(function_blocks.keys())
+        if len(list_fblocks) > 0:
+            store_msg = ''
             debug_msg = 'Function block starting addresses:\n'
-            for item in function_blocks.keys():
+            for idx, item in enumerate(list_fblocks):
                 debug_msg += '\t\t\t\t' + hex(item) +'\n'
+                if idx == (len(list_fblocks)-1):
+                    store_msg += hex(item)
+                else:
+                    store_msg += hex(item) +'\n'
         logging.trace(debug_msg)
         common_objs.function_blocks = function_blocks
-
+        
+        if store_path != None:
+            self.save_functions_to_file(store_path, store_msg)
+            return
+            
         # Populate xref to.
         # We do this after assigning previous to common_objs,
         #  in order to be able to utilise the id_function_block_for_instruction
@@ -124,6 +134,13 @@ class FunctionEvaluator:
         logging.info('Getting call-depth info.')
         function_blocks = self.get_call_depth_info()
 
+    def save_functions_to_file(self, save_folder, function_list):
+        filename = os.path.basename(common_paths.path_to_fw).replace('.bin','.fb')
+        store_file = os.path.join(save_folder, filename)
+        logging.debug('Saving functions to ' + store_file)
+        with open(store_file, 'w') as f:
+            f.write(function_list)
+            
     def get_xref_to(self, fb_start, fb_end):
         address = fb_start
         xref_to = []
@@ -177,28 +194,35 @@ class FunctionEvaluator:
         counter = max(all_counters)
         return counter
                 
+    def is_valid_function_start(self, address):
+        if address < common_objs.code_start_address:
+            return False
+        if address > common_objs.code_end_address:
+            return False
+        if utils.is_valid_code_address(address) != True:
+            return False
+        insn = common_objs.disassembled_firmware[address]['insn']
+        if insn.id in [ARM_INS_POP, ARM_INS_BL, ARM_INS_B,
+                    ARM_INS_BLX, ARM_INS_BX]:
+            return False
+        return True
+        
     def add_basic_functions(self, function_block_start_addresses):
         # Add very first address.
         minimum_possible_address = common_objs.code_start_address
         # It's possible that a __data_section_table or
         #  __bss_section_table is present immediately after the 
         #  vector table.
-        if utils.is_valid_code_address(minimum_possible_address) == True:
-            min_addr = common_objs.disassembled_firmware[minimum_possible_address]
-            if min_addr['insn'].id not in [ARM_INS_POP, ARM_INS_BL, ARM_INS_B,
-                    ARM_INS_BLX, ARM_INS_BX]:
-                function_block_start_addresses.append(minimum_possible_address)
+        if self.is_valid_function_start(minimum_possible_address) == True:
+            function_block_start_addresses.append(minimum_possible_address)
         # Add interrupt addresses.
         for intrpt in common_objs.application_vector_table:
             if intrpt == 'initial_sp':
                 continue
-            function_block_start_addresses.append(
-                common_objs.application_vector_table[intrpt]
-            )
+            intrpt_address = common_objs.application_vector_table[intrpt]
+            if self.is_valid_function_start(intrpt_address) == True:
+                function_block_start_addresses.append(intrpt_address)
 
-        # Add self-targeting branches.
-        #for ins_address in common_objs.self_targeting_branches:
-        #    function_block_start_addresses.append(ins_address)
         return function_block_start_addresses
  
     def check_branch_tos(self, function_block_start_addresses):
@@ -267,9 +291,19 @@ class FunctionEvaluator:
             if is_candidate != True:
                 continue
             
+            logging.trace(
+                hex(branch_address)
+                + ' is a candidate function start.'
+            )
             if branch_address not in function_block_start_addresses:
-                function_block_start_addresses.append(branch_address)
-                functions.append(hex(branch_address))
+                if self.is_valid_function_start(branch_address):
+                    function_block_start_addresses.append(branch_address)
+                    functions.append(hex(branch_address))
+                else:
+                    logging.trace(
+                        hex(branch_address)
+                        + ' has been determined to be an invalid start of function.'
+                    )
                 
         functions.sort()
         logging.debug(
@@ -389,6 +423,11 @@ class FunctionEvaluator:
             potential_end = False
             is_valid_code_address = utils.is_valid_code_address(address)
             if is_valid_code_address != True:
+                logging.trace(
+                    'No valid instruction at '
+                    + hex(address)
+                    + '. Marking as a valid exit.'
+                )
                 potential_end = True
             else:
                 # Logical exit points for a function are bx, pop-pc and 
@@ -398,21 +437,32 @@ class FunctionEvaluator:
                 operands = insn.operands
                 is_valid_exit = self.check_is_valid_exit(address, start, end)
                 if is_valid_exit == True:
+                    logging.trace(
+                        hex(address)
+                        + ' is a valid exit.'
+                    )
                     potential_end = True
                     
             # This is needed here because of unconditional branches.
-            if (is_valid_code_address == True):
+            if fw_bytes['is_data'] != True:
                 if ((insn.id == ARM_INS_B) and (insn.cc == ARM_CC_AL)):
                     branch_target = operands[0].value.imm
-                    if address not in branches:
-                        branches[address] = [branch_target]
-                    
+                    if branch_target <= end:
+                        if address not in branches:
+                            branches[address] = [branch_target]
+                        
             if potential_end == True:
                 skip_end = False
                 for branch_pt in branches:
                     targets = branches[branch_pt]
                     for target in targets:
                         if target > address:
+                            logging.trace(
+                                'Exit point skipped by branch at '
+                                + hex(branch_pt)
+                                + ' in branch object '
+                                + str(branches)
+                            )
                             skip_end = True
                             break
                 if skip_end == True:
@@ -444,8 +494,9 @@ class FunctionEvaluator:
                     original_address = address
                     table_branch_addresses = \
                         common_objs.replace_functions[original_address]['table_branch_addresses']
-                # With PC switch, the next addresses may not immediately follow
-                #  the PC operation.
+                        
+                    # With PC switch, the next addresses may not immediately follow
+                    #  the PC operation.
                     if (common_objs.replace_functions[address]['type'] 
                             in [consts.FN_GNUTHUMBCALL, consts.FN_ARMSWITCH8CALL]):
                         address = common_objs.replace_functions[original_address]['table_branch_max']
@@ -503,21 +554,13 @@ class FunctionEvaluator:
         start = address    
         if address == None: return None
         while address <= end:
-            if common_objs.disassembled_firmware[address]['is_data'] == True:
+            if utils.is_valid_code_address(address) != True:
                 address = utils.get_next_address(self.all_addresses, address)
                 start = address
                 if address == None:
                     break
                 continue
             insn = common_objs.disassembled_firmware[address]['insn']
-            if insn == None: 
-                address = utils.get_next_address(self.all_addresses, address)
-                start = address
-                if address == None:
-                    break
-                continue
-            if insn.id == ARM_INS_INVALID:
-                break
             if self.check_for_nop(insn.id, insn.operands) == True:
                 address = utils.get_next_address(self.all_addresses, address)
                 start = address

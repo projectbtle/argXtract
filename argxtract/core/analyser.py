@@ -16,8 +16,8 @@ from argxtract.core.register_evaluator import RegisterEvaluator
 
 
 class FirmwareAnalyser:
-    def __init__(self, mode, vendor, max_time, per_trace_max_time, max_call_depth,
-                    loglevel, null_handling, bypass, process_id):
+    def __init__(self, mode, vendor, max_time, per_trace_max_time, function_folder,
+                    max_call_depth, loglevel, null_handling, bypass, process_id):
         common_objs.mode = mode
         if per_trace_max_time > max_time:
             max_time = 0
@@ -29,6 +29,7 @@ class FirmwareAnalyser:
 
         logging.getLogger().setLevel(loglevel)
         self.set_paths(process_id)
+        self.function_folder = function_folder
 
         # First things first, run vendor tests.
         # These are NOT tests on the firmware file itself,
@@ -104,7 +105,9 @@ class FirmwareAnalyser:
 
         """ Step 3: Function block estimation and pattern matching """
         # Identify function blocks
-        self.function_evaluator.estimate_function_blocks()
+        self.function_evaluator.estimate_function_blocks(self.function_folder)
+        if self.function_folder != None:
+            return None
         
         # Identify denylisted blocks (that should not be considered when tracing).
         # Functions we shouldn't branch to.
