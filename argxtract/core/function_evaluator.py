@@ -584,13 +584,13 @@ class FunctionEvaluator:
                 return True
         if insn.id == ARM_INS_B:
             if insn.cc == ARM_CC_AL:
-                return True
                 target_address_int = insn.operands[0].value.imm
-                target_address = hex(target_address_int)
+                # Self-targeting branches would be a potential end.
                 if target_address_int == ins_address:
                     return True
-                # Wouldn't any unconditional branch to lower address be an exit?
-                if target_address_int < ins_address:
+                # Any unconditional branch to lower address or outside the function
+                #  block would be an end.
+                if ((target_address_int < ins_address) or (target_address_int > end)):
                     return True
         return False
     
