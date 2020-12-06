@@ -1078,6 +1078,8 @@ class FirmwareDisassembler:
         return ins_address
                 
     def handle_potential_byte_misinterpretation_errors(self):
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
         for ins_address in common_objs.disassembled_firmware:
             if ins_address < common_objs.code_start_address:
                 continue
@@ -1085,49 +1087,102 @@ class FirmwareDisassembler:
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None: continue
             
+            # Mark potential LDR targets as data, temporarily.
+            if (self.check_valid_pc_ldr(ins_address) == True):
+                if insn.id != ARM_INS_LDR:
+                    continue
+                curr_pc_value = self.get_mem_access_pc_value(ins_address)
+                ldr_target = curr_pc_value + insn.operands[1].mem.disp
+                common_objs.disassembled_firmware[ldr_target]['temp_data'] = True
+                continue
             # If ID is 0, then it may mean inline data.
             # But it may also be Capstone incorrectly disassembling a word.
-            if insn.id == ARM_INS_INVALID:
-                if ('byte' in insn.mnemonic):
-                    byte_misinterpretation = \
-                        self.handle_byte_misinterpretation(ins_address, insn)
-                    if byte_misinterpretation == True:
-                        continue
-                
-    def handle_byte_misinterpretation(self, ins_address, insn):
-        logging.debug('Handling potential incorrect .byte at ' + hex(ins_address))
-        if ((ins_address + 2) in common_objs.disassembled_firmware):
-            next_adr = common_objs.disassembled_firmware[ins_address+2]
-            next_insn = next_adr['insn']
-            if next_insn == None:
-                return False
-            if next_insn.id != ARM_INS_INVALID:
-                next_insn_bytes = next_insn.bytes
-                if len(next_insn_bytes) != 4:
-                    return False
-                if next_insn.id not in [ARM_INS_VSLI]:
-                    return False
-                next_insn = md.disasm(
-                    next_insn_bytes[0:2], 
-                    ins_address+2
-                )
-                for code_start_insn in next_insn:
-                    common_objs.disassembled_firmware[ins_address+2]['insn'] = \
-                        code_start_insn
-                    common_objs.disassembled_firmware[ins_address+2]['is_data'] = False
-                    break
-      
-                next_insn = md.disasm(
-                    next_insn_bytes[2:4], 
-                    ins_address+4
-                )
-                for code_start_insn in next_insn:
-                    common_objs.disassembled_firmware[ins_address+4]['insn'] = \
-                        code_start_insn
-                    common_objs.disassembled_firmware[ins_address+4]['is_data'] = False
-                    break
+            # This usually happens within blocks of words, 
+            #  so check preceding instructions.
+            prev_insn = utils.get_previous_address(all_addresses, ins_address)
+            prev_insn2 = utils.get_previous_address(all_addresses, prev_insn)
+            if ((self.is_byte_specific_invalid_or_nop(prev_insn) != True) 
+                    and (self.is_byte_specific_invalid_or_nop(prev_insn2) != True)):
+                continue
+            if ((insn.mnemonic.startswith('v')) and (len(insn.bytes) == 4)):
+                self.handle_byte_misinterpretation(ins_address, insn)
+        # Remove the temporary annotations.
+        for ins_address in common_objs.disassembled_firmware:
+            if 'temp_data' in common_objs.disassembled_firmware[ins_address]:
+                common_objs.disassembled_firmware[ins_address].pop('temp_data', None)
+    
+    def is_byte_specific_invalid_or_nop(self, address):
+        if utils.is_valid_code_address(address) != True:
+            return True
+        if 'temp_data' in common_objs.disassembled_firmware[address]:  
+            if common_objs.disassembled_firmware[address]['temp_data'] == True:
+                return True
+        insn = common_objs.disassembled_firmware[address]['insn']
+        if insn.id  == ARM_INS_NOP:
+            return True
+        if insn.id in [ARM_INS_MOV, ARM_INS_MOVT, ARM_INS_MOVW]:
+            if insn.operands[0].value.reg == insn.operands[1].value.reg:
                 return True
         return False
+    
+    def handle_byte_misinterpretation(self, ins_address, insn):
+        logging.debug('Handling potential incorrect insn at ' + hex(ins_address))
+        insn_bytes = common_objs.disassembled_firmware[ins_address]['insn'].bytes
+        insn = md.disasm(
+            insn_bytes[0:2], 
+            ins_address
+        )
+        for code_start_insn in insn:
+            common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
+                code_start_insn
+            common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
+            logging.trace(
+                'New instruction at ' 
+                + hex(code_start_insn.address)
+                + " "
+                + code_start_insn.mnemonic
+            )
+            break
+
+        if ins_address + 4 in common_objs.disassembled_firmware:
+            if common_objs.disassembled_firmware[ins_address+4]['insn'] == None:
+                return
+            next_insn_bytes = common_objs.disassembled_firmware[ins_address+4]['insn'].bytes
+            subsequent_bytes = None
+            if len(next_insn_bytes) == 4:
+                subsequent_bytes = next_insn_bytes[2:4]
+                next_insn_bytes = next_insn_bytes[0:2]
+            next_insn = md.disasm(
+                insn_bytes[2:4] + next_insn_bytes, 
+                ins_address+2
+            )
+            for code_start_insn in next_insn:
+                common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
+                    code_start_insn
+                common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
+                logging.trace(
+                    'New instruction at ' 
+                    + hex(code_start_insn.address)
+                    + " "
+                    + code_start_insn.mnemonic
+                )
+                break
+            if subsequent_bytes != None:
+                next_insn = md.disasm(
+                    subsequent_bytes, 
+                    ins_address+6
+                )
+                for code_start_insn in next_insn:
+                    common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
+                        code_start_insn
+                    common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
+                    logging.trace(
+                        'New instruction at ' 
+                        + hex(code_start_insn.address)
+                        + " "
+                        + code_start_insn.mnemonic
+                    )
+                    break
     
     def identify_switch_functions(self):
         """ Identify __ARM_common_switch8 and the __gnu_thumb1 variants."""
