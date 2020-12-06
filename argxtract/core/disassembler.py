@@ -45,8 +45,12 @@ class FirmwareDisassembler:
         
         # Populate interrupt handler addresses.
         interrupt_handlers = []
+        reset_address = common_objs.application_vector_table['reset']
         for key in common_objs.application_vector_table:
-            if key in ['initial_sp', 'reset']:
+            # Reset Handler is never an endless loop.
+            # Also leave out SysTick Handler, because it's optional
+            #  in Cortex-M0.
+            if key in ['initial_sp', 'reset', 'systick']:
                 continue
             address = hex(common_objs.application_vector_table[key])
             interrupt_handlers.append(address)
@@ -70,11 +74,18 @@ class FirmwareDisassembler:
                     + ' against self targeting branch at '
                     + self_targeting_branch
                 )
-                if (self_targeting_branch.replace('0x', ''))[-3:] in interrupt_handler:
-                    logging.trace('Match found!')
+                if (self_targeting_branch.replace('0x', ''))[-3:] == interrupt_handler[-3:]:
                     app_code_base = \
                         int(interrupt_handler, 16) - int(self_targeting_branch, 16)
                     if app_code_base < 0: continue
+                    # The range of values must include the Reset Handler.
+                    min_range = app_code_base
+                    max_range = app_code_base + len(common_objs.core_bytes)
+                    if reset_address < min_range:
+                        continue
+                    if reset_address > max_range:
+                        continue
+                    logging.trace('Match found!')
                     possible_code_bases.append(app_code_base)
         
         if len(list(set(possible_code_bases))) > 1:
@@ -98,7 +109,7 @@ class FirmwareDisassembler:
                 common_objs.app_code_base
             )
         logging.info('App code base estimated as: ' + hex(app_code_base))
-        
+
     def read_vector_table(self, base=0):
         application_vector_table = {}
         image_file = open(common_paths.path_to_fw, 'rb')
@@ -134,7 +145,7 @@ class FirmwareDisassembler:
             # Basic branches are easy.
             if opcode_id in [ARM_INS_BL, ARM_INS_B]:
                 target_address_int = insn.operands[0].value.imm
-                target_address = hex(target_address_int)
+                target_address = '{0:08x}'.format(target_address_int)
                 if target_address_int == ins_address:
                     self_targeting_branches.append(target_address)
             # BX Rx is more complicated.
@@ -195,7 +206,7 @@ class FirmwareDisassembler:
                 ordered_bytes = int(data_bytes, 16)
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
                 if target_branch == ldr_address:
-                    self_targeting_branches.append(hex(target_branch))
+                    self_targeting_branches.append('{0:08x}'.format(target_branch))
         self_targeting_branches.sort()       
         common_objs.disassembled_firmware = {}
         return self_targeting_branches
@@ -1094,6 +1105,8 @@ class FirmwareDisassembler:
                 next_insn_bytes = next_insn.bytes
                 if len(next_insn_bytes) != 4:
                     return False
+                if next_insn.id not in [ARM_INS_VSLI]:
+                    return False
                 next_insn = md.disasm(
                     next_insn_bytes[0:2], 
                     ins_address+2
@@ -1519,13 +1532,13 @@ class FirmwareDisassembler:
     def check_inline_address_instructions(self):
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
-        min_address = all_addresses[0]
+        min_address = common_objs.code_start_address
         max_address = common_objs.code_end_address
         ins_address = common_objs.code_start_address - 2
         logging.debug(
             'Checking for presence of inline addresses '
             + 'starting from '
-            + hex(ins_address)
+            + hex(min_address)
             + ' and ending '
             + hex(max_address)
         )
@@ -1579,9 +1592,13 @@ class FirmwareDisassembler:
                     #  register-relative LDR, then the address is marked 
                     #  as containing data.
                     if test_insn.id == ARM_INS_LDR:
-                        if test_insn.operands[1].value.mem.base == ldr_target_register:
-                            is_target_address_data = True
-                            break
+                        ldr_operand = test_insn.operands[1]
+                        if ldr_operand.value.mem.base == ldr_target_register:
+                            if ((ldr_operand.value.mem.index == 0) 
+                                    and (ldr_operand.value.mem.disp == 0)
+                                    and (ldr_operand.value.mem.lshift == 0)):
+                                is_target_address_data = True
+                                break
                     elif test_insn.id == ARM_INS_BX:
                         if test_insn.operands[0].value.reg == ldr_target_register:
                             is_target_address_data = True
