@@ -11,8 +11,8 @@ def logical_shift_left(value, shift):
     """
     if shift == 0:
         return (value, 0)
-    if shift > 31:
-        return (None, 0)
+    if shift > 32:
+        return ('00000000', 0)
     bit_length = utils.get_bit_length(value)
     bits = utils.get_binary_representation(value, bit_length)
     extended_bits = bits
@@ -36,7 +36,7 @@ def logical_shift_right(value, shift):
     if shift == 0:
         return (value, 0)
     if shift > 32:
-        return (None, 0)
+        return ('00000000', 0)
     bit_length = utils.get_bit_length(value)
     bits = utils.get_binary_representation(value, bit_length)
     extended_bits = bits
@@ -84,7 +84,7 @@ def rotate_right(value, shift):
     """
     if shift == 0:
         return (value, 0)
-    if shift > 31:
+    if shift > 32:
         return (None, 0)
     bit_length = utils.get_bit_length(value)
     bits = utils.get_binary_representation(value, bit_length)
