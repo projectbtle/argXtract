@@ -1783,9 +1783,10 @@ class FirmwareDisassembler:
                 )
             return disassembled_fw
         # If it was a BL to BL, it's unlikely to be correct.
-        if (disassembled_fw[branch_address]['insn'].id 
-                in [ARM_INS_POP, ARM_INS_BL, ARM_INS_B,
-                    ARM_INS_BLX, ARM_INS_BX]):
+        if ((disassembled_fw[branch_address]['insn'].id 
+                in [ARM_INS_POP, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX]) 
+                or ((disassembled_fw[branch_address]['insn'].id == ARM_INS_B) 
+                    and (disassembled_fw[branch_address]['insn'].cc != ARM_CC_AL))):
             if insn.id == ARM_INS_BL:
                 if ins_address not in common_objs.errored_instructions:
                     common_objs.errored_instructions.append(ins_address)
