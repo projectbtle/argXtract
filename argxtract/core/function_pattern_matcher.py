@@ -449,6 +449,7 @@ class FunctionPatternMatcher:
             logging.debug('Only one (pattern or function) has branch. No match.')
             return False
 
+        condition_match = None
         if is_branch_in_function == True:
             (function_comp_reg, function_comp_value, function_comp_cc) = \
                 self.get_comparison_reg_value(
@@ -857,14 +858,17 @@ class FunctionPatternMatcher:
                 return False
         pattern_base = min(pattern_keys)
         function_base = min(function_keys)
-        for i in range(len(pattern_keys)):
-            if (pattern_memory_obj[pattern_base+i] != 
-                    function_memory_obj[function_base+i]):
+        for pattern_key in pattern_keys:
+            diff = pattern_key-pattern_base
+            if (function_base+diff) not in function_memory_obj:
+                return False
+            if (pattern_memory_obj[pattern_key] != 
+                    function_memory_obj[function_base+diff]):
                 return False
         return True
                 
     def compare_register_objects(self, pattern_register_obj, function_register_obj):
-        for reg_idx in range(4):
+        for reg_idx in range(0):
             if (pattern_register_obj[66+reg_idx] != 
                     function_register_obj[66+reg_idx]):
                 return False
