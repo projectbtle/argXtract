@@ -142,7 +142,7 @@ class FunctionEvaluator:
             f.write(function_list)
             
     def get_xref_to(self, fb_start, fb_end):
-        address = fb_start
+        address = fb_start-2
         xref_to = []
         while ((address != None) and (address <= fb_end)):
             address = utils.get_next_address(self.all_addresses, address)
