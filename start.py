@@ -23,6 +23,7 @@ class argxtract:
         self.per_trace_max_time = common_objs.per_trace_max_time
         self.max_call_depth = common_objs.max_call_depth
         self.null_handling = common_objs.null_value_handling
+        self.app_code_base = None
         self.core_file_list = []
         self.loglevel = logging.INFO
         logging.getLogger().setLevel(self.loglevel)
@@ -130,6 +131,13 @@ class argxtract:
             type = str,
             action = 'store',
             help = 'save function list to folder and exit.'
+        )
+        self.argparser.add_argument(
+            '-a',
+            '--app_code_base',
+            type = str,
+            action = 'store',
+            help = 'address at which application should be loaded.'
         )
         self.argparser.add_argument(
             '-m',
@@ -263,6 +271,21 @@ class argxtract:
             if args.processes > 0:
                 self.processes = args.processes
                 
+        if args.app_code_base:
+            if args.app_code_base.startswith('0x'):
+                try:
+                    app_code_base = int(args.app_code_base, 16)
+                except:
+                    print('Could not convert app code base to int!')
+                    sys.exit(0)
+            else:
+                try:
+                    app_code_base = int(args.app_code_base)
+                except:
+                    print('Could not convert app code base to int!')
+                    sys.exit(0)
+            self.app_code_base = app_code_base
+            
         if args.null:
             self.null_handling = args.null
             
@@ -334,7 +357,7 @@ class argxtract:
             digest = m.hexdigest()
             outputfilename = './output/' + digest + '.json'
             # Get analysis output.
-            output = firmware_analyser.analyse_firmware(fw_file)
+            output = firmware_analyser.analyse_firmware(fw_file, self.app_code_base)
             if output == None:
                 outfile.write(fw_file + ',None\n')
                 outfile.flush()
@@ -381,7 +404,8 @@ class argxtract:
                 self.max_call_depth,
                 self.loglevel,
                 self.null_handling,
-                self.bypass
+                self.bypass,
+                self.app_code_base
             )
             worker = Process(
                 target=workerx.main,
@@ -437,7 +461,8 @@ class argxtract:
                             self.max_call_depth,
                             self.loglevel,
                             self.null_handling,
-                            self.bypass
+                            self.bypass,
+                            self.app_code_base
                         )
                         worker = Process(
                             target=workerx.main, 
@@ -464,7 +489,7 @@ class argxtract:
 
 class argxtractWorker:
     def __init__(self, mode, vendor, max_time, per_trace_max_time, function_folder, 
-            max_call_depth, loglevel, null_handling, bypass):
+            max_call_depth, loglevel, null_handling, bypass, app_code_base):
         self.mode = mode
         self.vendor = vendor
         self.bypass = bypass
@@ -474,6 +499,7 @@ class argxtractWorker:
         self.max_call_depth = max_call_depth
         self.loglevel = loglevel
         self.null_handling = null_handling
+        self.app_code_base = app_code_base
         logging.getLogger().setLevel(loglevel)
         
     def main(self, in_queue, out_queue, process_id):
@@ -507,7 +533,7 @@ class argxtractWorker:
             
             # Get analysis output.
             try:
-                output = firmware_analyser.analyse_firmware(filename)
+                output = firmware_analyser.analyse_firmware(filename, self.app_code_base)
                 # If no output, but no error.
                 if output == None:
                     if self.function_folder != None:

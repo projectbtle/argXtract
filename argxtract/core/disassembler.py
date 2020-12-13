@@ -27,9 +27,6 @@ class FirmwareDisassembler:
         
     def estimate_app_code_base(self):
         logging.info('Estimating app code base.')
-        
-        # Get AVT
-        self.read_vector_table()
 
         """ This is quite a hacky way of doing things, but with stripped 
             binaries, we have very little to go on. 
@@ -99,9 +96,20 @@ class FirmwareDisassembler:
             c = Counter(possible_code_bases)
             app_code_base, _ = c.most_common()[0]
             
+
+        # If the reset handler doesn't fit into the range:
+        #  (app_code_base, app_code_base+file_size)
+        #  then estimate code base.
+        if ((reset_address < app_code_base) 
+                or (reset_address >= (app_code_base + len(common_objs.core_bytes)))):
+            logging.debug(
+                'App code base does not include reset handler. '
+            )
+            common_objs.app_code_base = None
+            return
+            
         common_objs.app_code_base = app_code_base
-        common_objs.disassembly_start_address = common_objs.app_code_base
-        
+
         # Populate self-targeting branches, with app code base offset)
         for self_targeting_branch in self_targeting_branches:
             common_objs.self_targeting_branches.append(
@@ -172,18 +180,6 @@ class FirmwareDisassembler:
                 ldr_address = ins_address-2
                 curr_pc_value = self.get_mem_access_pc_value(ldr_address)
                 ldr_target = curr_pc_value + prev_insn.operands[1].mem.disp
-                if (abs(ldr_target-ldr_address) > 4096):
-                    if ldr_address not in common_objs.errored_instructions:
-                        common_objs.errored_instructions.append(ldr_address)
-                        logging.trace(
-                            'LDR target ('
-                            + hex(ldr_target)
-                            + ') is at an offset greater than 4096 '
-                            + 'for LDR call at '
-                            + hex(ldr_address)
-                            + '. Adding to errored instructions.'
-                        )
-                    continue
                 data_bytes = self.get_ldr_target_data_bytes(ldr_target, 4)
                 if data_bytes == consts.ERROR_INVALID_INSTRUCTION:
                     if ldr_address not in common_objs.errored_instructions:
@@ -205,8 +201,7 @@ class FirmwareDisassembler:
                     continue
                 ordered_bytes = int(data_bytes, 16)
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
-                if target_branch == ldr_address:
-                    self_targeting_branches.append('{0:08x}'.format(target_branch))
+                self_targeting_branches.append('{0:08x}'.format(target_branch))
         self_targeting_branches.sort()       
         common_objs.disassembled_firmware = {}
         return self_targeting_branches
@@ -216,7 +211,7 @@ class FirmwareDisassembler:
         vector_table_size = (4*16)
         file_size_in_bytes = os.stat(common_paths.path_to_fw).st_size
         address_min = vector_table_size
-        address_max = common_objs.app_code_base + file_size_in_bytes
+        address_max = file_size_in_bytes
         image_file = open(common_paths.path_to_fw, 'rb')
         
         address = vector_table_size
@@ -227,7 +222,7 @@ class FirmwareDisassembler:
             image_file.seek(0)
             image_file.seek(address)
             entry = struct.unpack('<I', image_file.read(4))[0]
-            if ((entry == 0) or (entry == 65535)):
+            if ((entry == 0) or (entry == 4294967295)):
                 address += 4
                 continue
             relative_entry = entry - 1 - common_objs.app_code_base
@@ -1063,7 +1058,20 @@ class FirmwareDisassembler:
         ldr_target = curr_pc_value + operands[1].mem.disp
         if insn.id == ARM_INS_ADR:
             ldr_target = curr_pc_value + operands[1].value.imm
-
+        else:
+            if (abs(ldr_target-ins_address) > 4096):
+                if ins_address not in common_objs.errored_instructions:
+                    common_objs.errored_instructions.append(ins_address)
+                    logging.trace(
+                        'LDR target ('
+                        + hex(ldr_target)
+                        + ') is at an offset greater than 4096 '
+                        + 'for LDR call at '
+                        + hex(ins_address)
+                        + '. Adding to errored instructions.'
+                    )
+                return ins_address
+                    
         outcome = self.process_data_addresses(ins_address, ldr_target, insn.id)
         if outcome == consts.ERROR_INVALID_INSTRUCTION:
             if ins_address not in common_objs.errored_instructions:
@@ -1869,7 +1877,7 @@ class FirmwareDisassembler:
         # Initialise parameters.
         ## Initialise registers.
         init_regs = {}
-        for reg in consts.REGISTERS:
+        for reg in list(consts.REGISTERS.keys()):
             init_regs[reg] = None
             
         start_stack_pointer = int(common_objs.application_vector_table['initial_sp'])

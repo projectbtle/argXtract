@@ -26,7 +26,7 @@ class FirmwareAnalyser:
         common_objs.max_call_depth = max_call_depth
         common_objs.null_value_handling = null_handling
         common_objs.bypass_all_conditional_checks = bypass
-
+        
         logging.getLogger().setLevel(loglevel)
         self.set_paths(process_id)
         self.function_folder = function_folder
@@ -47,7 +47,7 @@ class FirmwareAnalyser:
             common_objs.vendor
         )
         
-    def analyse_firmware(self, path_to_fw):
+    def analyse_firmware(self, path_to_fw, app_code_base=None):
         # Start with clean slate.
         self.reset()
         
@@ -77,10 +77,22 @@ class FirmwareAnalyser:
         
         # Set path, once file is confirmed to exist.
         common_paths.path_to_fw = path_to_fw
+
+        """ Step 1: Set up """
+        # Read vector table.
+        self.disassembler.read_vector_table()
         
-        """ Step 1: Get app code base """
         # Get application code base.
-        self.disassembler.estimate_app_code_base()
+        if app_code_base == None:
+            self.disassembler.estimate_app_code_base()
+            if common_objs.app_code_base == None:
+                logging.critical(
+                    'Unable to estimate app code base.'
+                )
+                return None
+        else:
+            common_objs.app_code_base = app_code_base
+        common_objs.disassembly_start_address = common_objs.app_code_base
         
         # Get vector table size.
         self.disassembler.estimate_vector_table_size()
