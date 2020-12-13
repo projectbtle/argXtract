@@ -26,9 +26,11 @@ class StrandExecution:
         self.max_time = 100
         self.end_points = []
         self.all_addresses = all_addresses
+        self.check_error = True
         
     def trace_register_values(self, insn_object, start_point, end_points, 
-            register_object, memory_map, condition_flags, exec_last=False):
+            register_object, memory_map, condition_flags, exec_last=False, 
+            check_error=True):
         logging.debug(  
             'Starting strand trace at '
             + hex(start_point)
@@ -37,6 +39,8 @@ class StrandExecution:
             + ' and '
             + str(register_object)
         )
+        
+        self.check_error = check_error
         
         ins_address = start_point
         code_end = common_objs.code_end_address
@@ -134,7 +138,11 @@ class StrandExecution:
         return (None, None, None)
     
     def update_pc_register(self, insn_object, ins_address, register_object):
-        if utils.is_valid_code_address(ins_address) != True:
+        if self.check_error == True:
+            exclude_error_check = False
+        else:
+            exclude_error_check = True
+        if utils.is_valid_code_address(ins_address, exclude_error_check) != True:
             should_update_pc_value = True
         else:
             insn = insn_object[ins_address]['insn']
@@ -246,9 +254,10 @@ class StrandExecution:
             logging.trace('Null target. Skipping.')
             return (False, None)
 
-        if calling_address in common_objs.errored_instructions:
-            logging.trace('Errored instruction. Skipping.')
-            return (False, None)
+        if self.check_error == True:
+            if calling_address in common_objs.errored_instructions:
+                logging.trace('Errored instruction. Skipping.')
+                return (False, None)
             
         logging.debug('Checking whether we should follow this branch')
 
@@ -565,10 +574,15 @@ class StrandExecution:
         condition = None
         branch_target = None
         
+        if self.check_error == True:
+            exclude_error_check = False
+        else:
+            exclude_error_check = True
+            
         address = start_address
         while address < end_address:
             address = self.get_next_address(self.all_addresses, address)
-            if utils.is_valid_code_address(address):
+            if utils.is_valid_code_address(address, exclude_error_check) != True:
                 continue
             insn = insn_object[address]['insn']
             opcode_id = insn.id
@@ -715,11 +729,12 @@ class StrandExecution:
     
     def process_reg_values_for_instruction(self, register_object, memory_map, 
                                 insn_object, ins_address, condition_flags):
-        if ins_address in common_objs.errored_instructions:
-            return (None, None, None, None)
+        if self.check_error == True:
+            if ins_address in common_objs.errored_instructions:
+                return (None, None, None)
         instruction = insn_object[ins_address]['insn']
         if instruction == None:
-            return (None, None, None, None)
+            return (None, None, None)
             
         # If the instruction is to be executed conditionally, first check 
         #  if the condition is satisfied.
@@ -1036,8 +1051,10 @@ class StrandExecution:
             )
         else:
             if ('dsb' not in instruction.mnemonic):
-                if instruction.mnemonic not in self.unhandled:
-                    self.unhandled.append(instruction.mnemonic)
+                logging.trace(
+                    'Unhandled instruction: '
+                    + instruction.mnemonic
+                )
             return (register_object, memory_map, condition_flags)
         return (register_object, memory_map, condition_flags)
     
