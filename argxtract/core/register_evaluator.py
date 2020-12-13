@@ -85,7 +85,7 @@ class RegisterEvaluator:
         
             # Initialise registers at the starting point.
             initialised_regs = {}
-            for reg in consts.REGISTERS:
+            for reg in list(consts.REGISTERS.keys()):
                 initialised_regs[reg] = None
             initialised_regs = self.store_register_bytes(
                 initialised_regs,
@@ -1142,7 +1142,7 @@ class RegisterEvaluator:
         address = start_address
         while address < end_address:
             address = self.get_next_address(self.all_addresses, address)
-            if utils.is_valid_code_address(address):
+            if utils.is_valid_code_address(address) != True:
                 continue
             insn = common_objs.disassembled_firmware[address]['insn']
             opcode_id = insn.id

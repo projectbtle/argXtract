@@ -22,6 +22,8 @@ md.detail = True
 class FunctionPatternMatcher:
     def __init__(self):
         self.test_sets = {}
+        self.current_input_registers = []
+        self.current_output_registers = []
         
     def match_vendor_functions(self):
         logging.info('Performing vendor function pattern matching.')
@@ -34,7 +36,7 @@ class FunctionPatternMatcher:
         pattern_files = []
         for root, dirs, filenames in os.walk(vendor_dir):
             for filename in filenames:
-                if filename.endswith('.txt'):
+                if filename.endswith('.json'):
                     pattern_files.append(os.path.join(root, filename))
                     
         if pattern_files == []:
@@ -47,7 +49,7 @@ class FunctionPatternMatcher:
         
         for pattern_file in pattern_files:
             filename = \
-                (os.path.basename(pattern_file)).replace('.txt', '')
+                (os.path.basename(pattern_file)).replace('.json', '')
             (pattern_insn_object, pattern_sections, pattern_registers, pattern_exec_obj) = \
                 self.decompose_pattern_file(pattern_file)
             address = self.match_pattern_file(
@@ -234,7 +236,26 @@ class FunctionPatternMatcher:
         # The pattern file contains bytes corresponding to a function
         #  we want to match.
         with open(pattern_file) as f:
-            pattern_file_bytes = f.read().strip()
+            pattern_input = json.load(f)
+            
+        input_pattern_registers = []
+        for reg in pattern_input['input_registers']:
+            for const_reg in consts.REGISTERS:
+                if reg == consts.REGISTERS[const_reg]:
+                    input_pattern_registers.append(const_reg)
+                    break
+        input_pattern_registers.sort()
+        output_pattern_registers = []
+        for reg in pattern_input['output_registers']:
+            for const_reg in consts.REGISTERS:
+                if reg == consts.REGISTERS[const_reg]:
+                    output_pattern_registers.append(const_reg)
+                    break
+        output_pattern_registers.sort()
+        self.current_input_registers = input_pattern_registers
+        self.current_output_registers = output_pattern_registers
+
+        pattern_file_bytes = pattern_input['pattern_bytes']
         # Convert to bytes.
         pattern_file_bytes = bytes.fromhex(pattern_file_bytes) 
         # Disassemble.
@@ -295,6 +316,11 @@ class FunctionPatternMatcher:
             pattern_insn_object
         )
         pattern_registers.sort()
+        if input_pattern_registers != pattern_registers:
+            logging.error(
+                'Pattern input registers do not match those specified in '
+                + 'the function pattern file.'
+            )
         logging.debug('Pattern registers ' + str(pattern_registers))
         
         pattern_sections['input_registers'] = pattern_registers
@@ -376,6 +402,7 @@ class FunctionPatternMatcher:
         if common_objs.function_blocks[function_start]['call_depth'] > 0:
             return True
             
+        return False
         # We don't support more than one conditional operation.
         num_conditionals = 0
         address = function_start-2
@@ -564,7 +591,7 @@ class FunctionPatternMatcher:
         logging.debug('Generating equivalent register path.')
         new_path = {}
         regs = {}
-        for reg in consts.REGISTERS:
+        for reg in list(consts.REGISTERS.keys()):
             regs[reg] = 'reg' + str(reg)
             
         for address in path:
@@ -658,9 +685,12 @@ class FunctionPatternMatcher:
             if address in conditional_branch_address:
                 break
             insn = function_object[address]['insn']
-            if insn != None:
-                if self.is_exit_instruction(insn) == True:
-                    break
+            if insn == None:
+                address = utils.get_next_address(all_addresses, address)
+                if address == None: break
+                continue
+            if self.is_exit_instruction(insn) == True:
+                break
             if ((insn.id == ARM_INS_B) and (insn.cc == ARM_CC_AL)):
                 branch_target = insn.operands[0].value.imm
                 if address == branch_target: break
@@ -850,6 +880,8 @@ class FunctionPatternMatcher:
 
     def compare_memory_objects(self, pattern_memory_obj, function_memory_obj):
         pattern_keys = list(pattern_memory_obj.keys())
+        if function_memory_obj == None:
+            return False
         function_keys = list(function_memory_obj.keys())
         if len(pattern_keys) == 0:
             if len(function_keys) == 0:
@@ -868,9 +900,11 @@ class FunctionPatternMatcher:
         return True
                 
     def compare_register_objects(self, pattern_register_obj, function_register_obj):
-        for reg_idx in range(0):
-            if (pattern_register_obj[66+reg_idx] != 
-                    function_register_obj[66+reg_idx]):
+        if function_register_obj == None:
+            return False
+        for reg_idx in self.current_output_registers:
+            if (pattern_register_obj[reg_idx] != 
+                    function_register_obj[reg_idx]):
                 return False
         return True
     
@@ -939,7 +973,8 @@ class FunctionPatternMatcher:
                 exec_instruction_object,
                 exec_input_object['start'],
                 exec_input_object['exits'], 
-                init_regs, memory_map, condition_flags, False)
+                init_regs, memory_map, condition_flags, 
+                False, False)
         output_object = {
             'mem': memory_map,
             'reg': register_object
@@ -954,7 +989,7 @@ class FunctionPatternMatcher:
         # Initialise parameters.
         ## Initialise registers.
         init_regs = {}
-        for reg in consts.REGISTERS:
+        for reg in list(consts.REGISTERS.keys()):
             init_regs[reg] = None
             
         start_stack_pointer = int(common_objs.application_vector_table['initial_sp'])
