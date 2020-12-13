@@ -27,7 +27,7 @@ class FirmwareDisassembler:
         
     def estimate_app_code_base(self):
         logging.info('Estimating app code base.')
-
+        
         """ This is quite a hacky way of doing things, but with stripped 
             binaries, we have very little to go on. 
             We first get the addresses for interrupt handlers from vector table. 
@@ -242,14 +242,25 @@ class FirmwareDisassembler:
         common_objs.code_start_address = \
             common_objs.app_code_base + vector_table_size
     
-    def create_disassembled_object(self, store=True):
+    def create_disassembled_object(self):
         disassembled_fw = self.disassemble_fw()
-
-        # This is for the initial fw checks.
-        if store != True:
-            return disassembled_fw
-            
         common_objs.disassembled_firmware = disassembled_fw
+        
+        self.handle_potential_byte_misinterpretation_errors()
+        
+        trace_msg = 'Revised instructions (taking into account ' \
+                    + 'potential byte misinterpretations):\n'
+        for ins_address in common_objs.disassembled_firmware:
+            instruction = common_objs.disassembled_firmware[ins_address]['insn']
+            bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
+            trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(instruction.address,
+                                            bytes,
+                                            instruction.mnemonic,
+                                            instruction.op_str)
+        logging.trace(trace_msg)
+        
+        # Estimate architecture.
+        self.test_arm_arch()
         disassembled_fw = None
         
     def identify_inline_data(self):   
@@ -336,9 +347,6 @@ class FirmwareDisassembler:
             common_objs.disassembled_firmware
         )
         
-        # Estimate architecture.
-        self.test_arm_arch()
-        
     def disassemble_fw(self):
         logging.info(
             'Disassembling firmware using Capstone '
@@ -369,6 +377,7 @@ class FirmwareDisassembler:
                                             instruction.mnemonic,
                                             instruction.op_str)
         logging.trace(trace_msg)
+        
         return disassembled_fw
         
     def add_dummy_keys(self, disassembled_fw):
@@ -415,8 +424,6 @@ class FirmwareDisassembler:
             'Code end address is '
             + hex(common_objs.code_end_address)
         )
-        
-        self.handle_potential_byte_misinterpretation_errors()
         
         self.identify_switch_functions()
         
@@ -1088,8 +1095,8 @@ class FirmwareDisassembler:
     def handle_potential_byte_misinterpretation_errors(self):
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
-        ins_address = common_objs.code_start_address
-        while ins_address < common_objs.code_end_address:
+        ins_address = all_addresses[0]
+        while ins_address < all_addresses[-1]:
             ins_address = utils.get_next_address(
                 all_addresses,
                 ins_address
@@ -1099,40 +1106,12 @@ class FirmwareDisassembler:
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None: continue
             
-            # Mark potential LDR targets as data, temporarily.
-            if (self.check_valid_pc_ldr(ins_address) == True):
-                if insn.id != ARM_INS_LDR:
-                    continue
-                curr_pc_value = self.get_mem_access_pc_value(ins_address)
-                ldr_target = curr_pc_value + insn.operands[1].mem.disp
-                if ldr_target >= common_objs.code_end_address:
-                    continue
-                if (ldr_target+2) >= common_objs.code_end_address:
-                    continue
-                common_objs.disassembled_firmware[ldr_target]['temp_data'] = True
-                common_objs.disassembled_firmware[ldr_target+2]['temp_data'] = True
-                continue
-            # If ID is 0, then it may mean inline data.
-            # But it may also be Capstone incorrectly disassembling a word.
-            # This usually happens within blocks of words, 
-            #  so check preceding instructions.
-            prev_insn = utils.get_previous_address(all_addresses, ins_address)
-            prev_insn2 = utils.get_previous_address(all_addresses, prev_insn)
-            if ((self.is_byte_specific_invalid_or_nop(prev_insn) != True) 
-                    and (self.is_byte_specific_invalid_or_nop(prev_insn2) != True)):
-                continue
-            if ((insn.mnemonic.startswith('v')) and (len(insn.bytes) == 4)):
+            # Capstone seems to misinterpret most when 'ff' is in the byte array.
+            bytes = ''.join('{:02x}'.format(x) for x in insn.bytes)
+            if ((insn.mnemonic.startswith('v')) 
+                    and (len(insn.bytes) == 4)
+                    and ('ff' in bytes)):
                 self.handle_byte_misinterpretation(ins_address, insn)
-        # Remove the temporary annotations.
-        ins_address = common_objs.code_start_address
-        while ins_address < common_objs.code_end_address:
-            ins_address = utils.get_next_address(
-                all_addresses,
-                ins_address
-            )
-            if ins_address == None: break
-            if 'temp_data' in common_objs.disassembled_firmware[ins_address]:
-                common_objs.disassembled_firmware[ins_address].pop('temp_data', None)
     
     def is_byte_specific_invalid_or_nop(self, address):
         if utils.is_valid_code_address(address) != True:
@@ -1156,6 +1135,8 @@ class FirmwareDisassembler:
             ins_address
         )
         for code_start_insn in insn:
+            if code_start_insn.address not in common_objs.disassembled_firmware:
+                common_objs.disassembled_firmware[code_start_insn.address] = {}
             common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
                 code_start_insn
             common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
@@ -1165,7 +1146,22 @@ class FirmwareDisassembler:
                 + " "
                 + code_start_insn.mnemonic
             )
-            break
+        insn2 = md.disasm(
+            insn_bytes[2:4], 
+            ins_address+2
+        )
+        for code_start_insn in insn2:
+            if code_start_insn.address not in common_objs.disassembled_firmware:
+                common_objs.disassembled_firmware[code_start_insn.address] = {}
+            common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
+                code_start_insn
+            common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
+            logging.trace(
+                'New instruction at ' 
+                + hex(code_start_insn.address)
+                + " "
+                + code_start_insn.mnemonic
+            )
 
         if ins_address + 4 in common_objs.disassembled_firmware:
             if common_objs.disassembled_firmware[ins_address+4]['insn'] == None:
@@ -1180,6 +1176,8 @@ class FirmwareDisassembler:
                 ins_address+2
             )
             for code_start_insn in next_insn:
+                if code_start_insn.address not in common_objs.disassembled_firmware:
+                    common_objs.disassembled_firmware[code_start_insn.address] = {}
                 common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
                     code_start_insn
                 common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
@@ -1189,13 +1187,14 @@ class FirmwareDisassembler:
                     + " "
                     + code_start_insn.mnemonic
                 )
-                break
             if subsequent_bytes != None:
                 next_insn = md.disasm(
                     subsequent_bytes, 
                     ins_address+6
                 )
                 for code_start_insn in next_insn:
+                    if code_start_insn.address not in common_objs.disassembled_firmware:
+                        common_objs.disassembled_firmware[code_start_insn.address] = {}
                     common_objs.disassembled_firmware[code_start_insn.address]['insn'] = \
                         code_start_insn
                     common_objs.disassembled_firmware[code_start_insn.address]['is_data'] = False
