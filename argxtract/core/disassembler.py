@@ -112,6 +112,7 @@ class FirmwareDisassembler:
             return
             
         common_objs.app_code_base = app_code_base
+        common_objs.disassembly_start_address = app_code_base
 
         # Populate self-targeting branches, with app code base offset)
         for self_targeting_branch in self_targeting_branches:
@@ -130,15 +131,17 @@ class FirmwareDisassembler:
             vector_table_entry = struct.unpack('<I', image_file.read(4))[0]
             if avt_entry == 'initial_sp':
                 if vector_table_entry == 0x00000000:
+                    print('SP1')
                     return False
                 if vector_table_entry%2 != 0:
+                    print('SP2')
                     return False
             elif avt_entry != 'systick':
+                if vector_table_entry == 0x00000000:
+                    continue
                 if vector_table_entry%2 != 1:
+                    print('avt')
                     return False
-            if vector_table_entry == 0x00000000:
-                continue
-            if vector_table_entry%2 == 1:
                 vector_table_entry -= 1
             application_vector_table[avt_entry] = vector_table_entry
         
@@ -260,10 +263,7 @@ class FirmwareDisassembler:
     
     def create_disassembled_object(self):
         if common_objs.disassembled_firmware == {}:
-            disassembled_fw = self.disassemble_fw()
-            common_objs.disassembled_firmware = disassembled_fw
-            
-            self.handle_potential_byte_misinterpretation_errors()
+            self.disassemble_and_handle_byte_errors()
             
             trace_msg = 'Revised instructions (taking into account ' \
                         + 'potential byte misinterpretations):\n'
@@ -276,33 +276,29 @@ class FirmwareDisassembler:
                                                 instruction.op_str)
             logging.trace(trace_msg)
         
-        # There's no need to rebase if app code base is 0.
+        # There's no need to disassemble again if app code base is 0.
         if common_objs.app_code_base > 0x00000000:
-            self.rebase_addresses()
+            logging.trace('Disassembling again due to non-zero code base.')
+            self.disassemble_and_handle_byte_errors()
             
-        trace_msg = 'Final disassembly (prior to inline data checks):\n'
-        for ins_address in common_objs.disassembled_firmware:
-            instruction = common_objs.disassembled_firmware[ins_address]['insn']
-            bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
-            trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(ins_address,
-                                            bytes,
-                                            instruction.mnemonic,
-                                            instruction.op_str)
-        logging.trace(trace_msg)
+            trace_msg = 'Final disassembly (prior to inline data checks):\n'
+            for ins_address in common_objs.disassembled_firmware:
+                instruction = common_objs.disassembled_firmware[ins_address]['insn']
+                bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
+                trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(ins_address,
+                                                bytes,
+                                                instruction.mnemonic,
+                                                instruction.op_str)
+            logging.trace(trace_msg)
             
         # Estimate architecture.
         self.test_arm_arch()
         disassembled_fw = None
         
-    def rebase_addresses(self):
-        new_disassembled_firmware = {}
-        all_addresses = list(common_objs.disassembled_firmware.keys())
-        all_addresses.sort()
-        for ins_address in all_addresses:
-            rebased_address = ins_address + common_objs.app_code_base
-            new_disassembled_firmware[rebased_address] = \
-                common_objs.disassembled_firmware[ins_address]
-        common_objs.disassembled_firmware = new_disassembled_firmware
+    def disassemble_and_handle_byte_errors(self):
+        disassembled_fw = self.disassemble_fw()
+        common_objs.disassembled_firmware = disassembled_fw
+        self.handle_potential_byte_misinterpretation_errors()
     
     def identify_inline_data(self):   
         logging.info('Identifying inline data.')
