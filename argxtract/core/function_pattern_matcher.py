@@ -528,7 +528,13 @@ class FunctionPatternMatcher:
             pattern_insn_object
         )
         if function_basics != pattern_basics:
-            logging.debug('Basic components don\'t match.')
+            logging.debug(
+                'Basic components don\'t match: '
+                + 'Pattern basic components: '
+                + str(pattern_basics)
+                + ' Function basic components: '
+                + str(function_basics)
+            )
             return False
         return True
         
