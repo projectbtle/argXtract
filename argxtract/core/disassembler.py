@@ -302,8 +302,6 @@ class FirmwareDisassembler:
             rebased_address = ins_address + common_objs.app_code_base
             new_disassembled_firmware[rebased_address] = \
                 common_objs.disassembled_firmware[ins_address]
-            new_disassembled_firmware[rebased_address]['insn'].address = \
-                rebased_address
         common_objs.disassembled_firmware = new_disassembled_firmware
     
     def identify_inline_data(self):   
@@ -1432,7 +1430,7 @@ class FirmwareDisassembler:
                             + hex(branch_target)
                             + ') is not less than code start address '
                             + 'for call at '
-                            + hex(ins_address)
+                            + hex(address)
                             + '. Adding to errored instructions.'
                         )
                         common_objs.errored_instructions.append(address)
