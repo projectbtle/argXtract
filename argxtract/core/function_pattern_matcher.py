@@ -879,23 +879,21 @@ class FunctionPatternMatcher:
         return True
 
     def compare_memory_objects(self, pattern_memory_obj, function_memory_obj):
-        pattern_keys = list(pattern_memory_obj.keys())
         if function_memory_obj == None:
             return False
+        pattern_keys = list(pattern_memory_obj.keys())
         function_keys = list(function_memory_obj.keys())
         if len(pattern_keys) == 0:
             if len(function_keys) == 0:
                 return True
             else:
                 return False
-        pattern_base = min(pattern_keys)
-        function_base = min(function_keys)
+        
         for pattern_key in pattern_keys:
-            diff = pattern_key-pattern_base
-            if (function_base+diff) not in function_memory_obj:
+            if pattern_key not in function_memory_obj:
                 return False
             if (pattern_memory_obj[pattern_key] != 
-                    function_memory_obj[function_base+diff]):
+                    function_memory_obj[pattern_key]):
                 return False
         return True
                 
@@ -992,8 +990,7 @@ class FunctionPatternMatcher:
         for reg in list(consts.REGISTERS.keys()):
             init_regs[reg] = None
             
-        start_stack_pointer = int(common_objs.application_vector_table['initial_sp'])
-        init_regs[ARM_REG_SP] = '{0:08x}'.format(start_stack_pointer)
+        init_regs[ARM_REG_SP] = '2000000'
         
         init_regs[ARM_REG_PC] = \
             '{0:08x}'.format(strand_eval_obj.get_pc_value(trace_start))
