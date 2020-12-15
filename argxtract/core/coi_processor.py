@@ -53,11 +53,13 @@ class CoiProcessor:
             coi_address_object[svc_name]['svc_num'] = svc_num
             svc_nums_of_interest[svc_num] = svc_name
             
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address < common_objs.code_start_address:
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        ins_address = common_objs.code_start_address - 2
+        while ins_address <= common_objs.code_end_address:
+            ins_address += 2
+            if ins_address not in common_objs.disassembled_firmware:
                 continue
-            if ins_address > common_objs.code_end_address:
-                break
             if ins_address in common_objs.errored_instructions:
                 continue
             if common_objs.disassembled_firmware[ins_address]['is_data'] == True:
@@ -270,7 +272,7 @@ class CoiProcessor:
                     coi_chain,
                     coi_name
                 )
-        #output_object = utils.order_dict(output_object)
+        output_object = utils.order_dict(output_object)
         self.annotation_id = 0
         for key in output_object:
             output_object[key]['branch_or_end_points'] = \

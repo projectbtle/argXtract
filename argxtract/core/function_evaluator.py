@@ -230,11 +230,11 @@ class FunctionEvaluator:
             'Checking for high-certainty functions.'
         )
         functions = []
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address < common_objs.code_start_address:
-                continue
-            if ins_address > common_objs.code_end_address:
-                break
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        ins_address = common_objs.code_start_address - 2
+        while ins_address <= common_objs.code_end_address:
+            ins_address += 2
             # If it's data, rather than an instruction, then there is no use
             #  in continuing.
             if utils.is_valid_code_address(ins_address) != True:

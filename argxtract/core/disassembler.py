@@ -52,6 +52,9 @@ class FirmwareDisassembler:
             address = hex(common_objs.application_vector_table[key])
             interrupt_handlers.append(address)
         
+        # DIsassemble the firmware.
+        self.create_disassembled_object()
+        
         # Populate self-targeting branch addresses.
         self_targeting_branches = self.populate_self_targeting_branches()
         
@@ -125,6 +128,14 @@ class FirmwareDisassembler:
             image_file.seek(0)
             image_file.seek(base+consts.AVT[avt_entry])
             vector_table_entry = struct.unpack('<I', image_file.read(4))[0]
+            if avt_entry == 'initial_sp':
+                if vector_table_entry == 0x00000000:
+                    return False
+                if vector_table_entry%2 != 0:
+                    return False
+            elif avt_entry != 'systick':
+                if vector_table_entry%2 != 1:
+                    return False
             if vector_table_entry == 0x00000000:
                 continue
             if vector_table_entry%2 == 1:
@@ -139,10 +150,10 @@ class FirmwareDisassembler:
                          + ': ' \
                          + hex(application_vector_table[avt_entry]) 
         logging.info(debug_msg)
+        return True
     
     def populate_self_targeting_branches(self):
         self_targeting_branches = []
-        self.create_disassembled_object()
         for ins_address in common_objs.disassembled_firmware:
             if utils.is_valid_code_address(ins_address) != True:
                 continue
@@ -203,12 +214,11 @@ class FirmwareDisassembler:
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
                 self_targeting_branches.append('{0:08x}'.format(target_branch))
         self_targeting_branches.sort()       
-        common_objs.disassembled_firmware = {}
         return self_targeting_branches
         
     def estimate_vector_table_size(self):
-        # At a minimum, the vector table will have 16 entries
-        vector_table_size = (4*16)
+        # At a minimum, the vector table will have 15 entries
+        vector_table_size = (4*15)
         file_size_in_bytes = os.stat(common_paths.path_to_fw).st_size
         address_min = vector_table_size
         address_max = file_size_in_bytes
@@ -225,6 +235,8 @@ class FirmwareDisassembler:
             if ((entry == 0) or (entry == 4294967295)):
                 address += 4
                 continue
+            if entry % 2 == 0:
+                break
             relative_entry = entry - 1 - common_objs.app_code_base
             if relative_entry%2 == 0:
                 if ((relative_entry >= address_min) 
@@ -241,28 +253,59 @@ class FirmwareDisassembler:
         )
         common_objs.code_start_address = \
             common_objs.app_code_base + vector_table_size
+        logging.info(
+            'Start of code is ' 
+            + hex(common_objs.code_start_address)
+        )
     
     def create_disassembled_object(self):
-        disassembled_fw = self.disassemble_fw()
-        common_objs.disassembled_firmware = disassembled_fw
+        if common_objs.disassembled_firmware == {}:
+            disassembled_fw = self.disassemble_fw()
+            common_objs.disassembled_firmware = disassembled_fw
+            
+            self.handle_potential_byte_misinterpretation_errors()
+            
+            trace_msg = 'Revised instructions (taking into account ' \
+                        + 'potential byte misinterpretations):\n'
+            for ins_address in common_objs.disassembled_firmware:
+                instruction = common_objs.disassembled_firmware[ins_address]['insn']
+                bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
+                trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(ins_address,
+                                                bytes,
+                                                instruction.mnemonic,
+                                                instruction.op_str)
+            logging.trace(trace_msg)
         
-        self.handle_potential_byte_misinterpretation_errors()
-        
-        trace_msg = 'Revised instructions (taking into account ' \
-                    + 'potential byte misinterpretations):\n'
+        # There's no need to rebase if app code base is 0.
+        if common_objs.app_code_base > 0x00000000:
+            self.rebase_addresses()
+            
+        trace_msg = 'Final disassembly (prior to inline data checks):\n'
         for ins_address in common_objs.disassembled_firmware:
             instruction = common_objs.disassembled_firmware[ins_address]['insn']
             bytes = ''.join('{:02x}'.format(x) for x in instruction.bytes)
-            trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(instruction.address,
+            trace_msg += '\t\t\t\t\t\t\t\t0x%x:\t%s\t%s\t%s\n' %(ins_address,
                                             bytes,
                                             instruction.mnemonic,
                                             instruction.op_str)
         logging.trace(trace_msg)
-        
+            
         # Estimate architecture.
         self.test_arm_arch()
         disassembled_fw = None
         
+    def rebase_addresses(self):
+        new_disassembled_firmware = {}
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        for ins_address in all_addresses:
+            rebased_address = ins_address + common_objs.app_code_base
+            new_disassembled_firmware[rebased_address] = \
+                common_objs.disassembled_firmware[ins_address]
+            new_disassembled_firmware[rebased_address]['insn'].address = \
+                rebased_address
+        common_objs.disassembled_firmware = new_disassembled_firmware
+    
     def identify_inline_data(self):   
         logging.info('Identifying inline data.')
         
@@ -305,9 +348,11 @@ class FirmwareDisassembler:
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         trace_msg = 'Final instructions: \n'
-        for address in common_objs.disassembled_firmware:
-            if address > common_objs.code_end_address:
-                break
+        address = common_objs.code_start_address - 2
+        while address <= common_objs.code_end_address:
+            address += 2
+            if address not in common_objs.disassembled_firmware:
+                continue
             if common_objs.disassembled_firmware[address]['is_data'] == True:
                 next_address = utils.get_next_address(all_addresses, address)
                 if next_address == None: next_address = address + 2
@@ -384,6 +429,7 @@ class FirmwareDisassembler:
         logging.debug('Creating dummy keys for disassembled object.')
         # Add dummy keys to the object, to prevent errors later.
         all_keys = list(disassembled_fw.keys())
+        all_keys.sort()
         first_key = all_keys[0]
         last_key = all_keys[-1]
         disassembled_fw_with_dummy_keys = {}
@@ -400,7 +446,9 @@ class FirmwareDisassembler:
         
     def remove_dummy_keys(self, disassembled_fw):
         new_fw = {}
-        for ins_address in disassembled_fw:
+        all_keys = list(disassembled_fw.keys())
+        all_keys.sort()
+        for ins_address in all_keys:
             if ((disassembled_fw[ins_address]['insn'] == None) and 
                     (disassembled_fw[ins_address]['is_data'] == False)):
                 continue
@@ -1095,8 +1143,24 @@ class FirmwareDisassembler:
     def handle_potential_byte_misinterpretation_errors(self):
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
-        ins_address = all_addresses[0]
-        while ins_address < all_addresses[-1]:
+        
+        max_vector_table_size = 0x400
+        app_code_bytes = common_objs.core_bytes[max_vector_table_size:]
+        code_split = app_code_bytes.split(
+            bytearray.fromhex('0000000000000000000000000000000000000000000000000000000000000000')
+        )
+        for single_split in code_split:
+            if single_split == b'':
+                continue
+            else:
+                first_split = single_split
+                break
+        length_first_split = len(first_split)
+        if length_first_split%2 == 1: length_first_split += 1
+        address_end = max_vector_table_size + length_first_split
+
+        ins_address = 0x3c
+        while ins_address <= address_end:
             ins_address = utils.get_next_address(
                 all_addresses,
                 ins_address
@@ -1105,9 +1169,11 @@ class FirmwareDisassembler:
                 
             insn = common_objs.disassembled_firmware[ins_address]['insn']
             if insn == None: continue
+            if insn.id == 0: continue
             
             # Capstone seems to misinterpret most when 'ff' is in the byte array.
             bytes = ''.join('{:02x}'.format(x) for x in insn.bytes)
+            
             if ((insn.mnemonic.startswith('v')) 
                     and (len(insn.bytes) == 4)
                     and ('ff' in bytes)):
@@ -1214,9 +1280,11 @@ class FirmwareDisassembler:
     def identify_arm_switch8(self):
         logging.debug('Checking for __ARM_common_switch8')
         arm_switch8 = None
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address > common_objs.code_end_address:
-                break
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        ins_address = common_objs.code_start_address - 2
+        while ins_address <= common_objs.code_end_address:
+            ins_address += 2
             if utils.is_valid_code_address(ins_address) != True:
                 continue
             insn = common_objs.disassembled_firmware[ins_address]['insn']
@@ -1260,9 +1328,11 @@ class FirmwareDisassembler:
         logging.debug('Checking for __gnu_thumb1 variants')
         gnu_thumb = None
         self.gnu_thumb = []
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address > common_objs.code_end_address:
-                break
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        ins_address = common_objs.code_start_address - 2
+        while ins_address <= common_objs.code_end_address:
+            ins_address += 2
             if utils.is_valid_code_address(ins_address) != True:
                 continue
                 
@@ -1490,10 +1560,11 @@ class FirmwareDisassembler:
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         max_address = all_addresses[-1]
+        
         if ((common_objs.code_end_address > 0) 
                 and (common_objs.code_end_address < max_address)):
             max_address = common_objs.code_end_address
-            
+    
         if address_data_start > max_address:
             logging.debug('No data section identified.')
             return
@@ -1842,11 +1913,11 @@ class FirmwareDisassembler:
         """Test for ARM architecture version. We use this in function matching."""
         
         arch7m_ins = [ARM_INS_UDIV, ARM_INS_TBB, ARM_INS_TBH]
-        for ins_address in common_objs.disassembled_firmware:
-            if ins_address < common_objs.code_start_address:
-                continue
-            if ins_address > common_objs.code_end_address:
-                break
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        ins_address = common_objs.code_start_address - 2
+        while ins_address <= common_objs.code_end_address:
+            ins_address += 2
             if utils.is_valid_code_address(ins_address) != True:
                 continue
             if common_objs.disassembled_firmware[ins_address]['insn'].id == 0:

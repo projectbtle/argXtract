@@ -73,6 +73,11 @@ class FirmwareAnalyser:
         # A very small file wouldn't be firmware. 
         # ARM AVT itself is at least 60 bytes.
         if file_size_in_bytes < 0x3C:
+            logging.critical(
+                'File "'
+                + path_to_fw
+                + '" too small.'
+            )
             return None
         
         # Set path, once file is confirmed to exist.
@@ -80,7 +85,13 @@ class FirmwareAnalyser:
 
         """ Step 1: Set up """
         # Read vector table.
-        self.disassembler.read_vector_table()
+        avt_read = self.disassembler.read_vector_table()
+        if avt_read == False:
+            logging.critical(
+                'AVT read error for "'
+                + path_to_fw
+            )
+            return None
         
         # Get application code base.
         if app_code_base == None:
