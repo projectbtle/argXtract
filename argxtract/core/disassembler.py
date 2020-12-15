@@ -467,7 +467,8 @@ class FirmwareDisassembler:
         # Read in data from the Reset Handler.
         self.identify_data_segment_via_reset_handler()
         # Check for additional data segments using null bytes.
-        self.estimate_end_of_app_code()
+        # Maybe don't because some firmware files are split into sections.
+        #self.estimate_end_of_app_code()
         logging.debug(
             'Code end address is '
             + hex(common_objs.code_end_address)
@@ -1160,6 +1161,7 @@ class FirmwareDisassembler:
         address_end = max_vector_table_size + length_first_split
 
         ins_address = 0x3c
+        address_end = all_addresses[-1]
         while ins_address <= address_end:
             ins_address = utils.get_next_address(
                 all_addresses,
