@@ -1,0 +1,5 @@
+{
+    "input_registers": ["r0", "r1", "r2"],
+    "output_registers": [],
+    "pattern_bytes": "4160022382600021037008467047"
+}

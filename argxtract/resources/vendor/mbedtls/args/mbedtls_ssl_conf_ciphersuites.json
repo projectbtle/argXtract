@@ -1,0 +1,26 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "conf": {
+                    "ptr_val": "value",
+                    "length_bits": 32,
+                    "type": "hex"
+                }
+            }
+        },
+        "1": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "data": {
+                "ciphersuites": {
+                    "ptr_val": "value",
+                    "length_bits": 256,
+                    "type": "hex"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,37 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "data": {
+                "keyHandle": {
+                    "ptr_val": "value",
+                    "length_bits": 256,
+                    "type": "uint32"
+                }
+            }
+        },
+        "1": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "data": {
+                "key": {
+                    "ptr_val": "value",
+                    "length_bits": 256,
+                    "type": "hex"
+                }
+            }
+        },
+        "2": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "keyLength": {
+                    "ptr_val": "value",
+                    "length_bits": 32,
+                    "type": "uint32"
+                }
+            }
+        }
+    }
+}
