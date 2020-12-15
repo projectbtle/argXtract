@@ -146,7 +146,7 @@ class FunctionPatternMatcher:
         
         address = function_start-2
         branch_identified = False
-        while address <= function_end:
+        while address < function_end:
             address = utils.get_next_address(all_addresses, address)
             if address == None: break
             if function_object[address]['is_data'] == True:
@@ -176,7 +176,7 @@ class FunctionPatternMatcher:
         
         address = function_start-2
         branch_identified = False
-        while address <= function_end:
+        while address < function_end:
             address = utils.get_next_address(all_addresses, address)
             if address == None: break
             insn = function_object[address]['insn']
@@ -406,7 +406,7 @@ class FunctionPatternMatcher:
         # We don't support more than one conditional operation.
         num_conditionals = 0
         address = function_start-2
-        while address <= function_end:
+        while address < function_end:
             address = utils.get_next_address(self.all_addresses, address)
             if address == None: break
             
@@ -483,19 +483,6 @@ class FunctionPatternMatcher:
                     function_sections,
                     common_objs.disassembled_firmware
                 )
-            if pattern_sections['branch']['register'] != function_comp_reg:
-                logging.debug('Comparison registers don\'t match.')
-                return False
-            if pattern_sections['branch']['value'] != function_comp_value:
-                logging.debug('Comparison values don\'t match.')
-                return False
-            condition_match = self.check_condition_match(
-                function_comp_cc,
-                pattern_sections['branch']['condition']
-            )
-            if condition_match not in [1, -1]:
-                logging.debug('Comparison conditions don\'t match.')
-                return False
             
             # Update function sections object.
             function_sections['branch']['register'] = function_comp_reg
@@ -552,14 +539,16 @@ class FunctionPatternMatcher:
         all_addresses = list(function_object.keys())
         all_addresses.sort()
         address = start-2
-        while address <= end:
+        while address < end:
             address = utils.get_next_address(all_addresses, address)
             if address == None: break
             insn = function_object[address]['insn']
             if insn == None: continue
             
-            if (insn.id in [ARM_INS_STR, ARM_INS_STRB, ARM_INS_STREX, 
-                    ARM_INS_STREXB, ARM_INS_STREXH, ARM_INS_STRH]):
+            if (insn.id in [ARM_INS_STMDA, ARM_INS_STMDB, ARM_INS_STM,
+                    ARM_INS_STMIB, ARM_INS_STRBT, ARM_INS_STRB, ARM_INS_STRD,
+                    ARM_INS_STREX, ARM_INS_STREXB, ARM_INS_STREXD, ARM_INS_STREXH,
+                    ARM_INS_STRH, ARM_INS_STRHT, ARM_INS_STRT, ARM_INS_STR]):
                 components['str'] = True
         return components
     
@@ -621,7 +610,7 @@ class FunctionPatternMatcher:
             #  (misleading named "dst_reg" :) )
             # No further processing is required.
             if (insn.id in [ARM_INS_STR, ARM_INS_STRB, ARM_INS_STREX, 
-                    ARM_INS_STREXB, ARM_INS_STREXH, ARM_INS_STRH]):
+                    ARM_INS_STREXB, ARM_INS_STREXH, ARM_INS_STRH, ARM_INS_STRD]):
                 continue
 
             if len(operands) < 2:
@@ -779,6 +768,14 @@ class FunctionPatternMatcher:
                     input_regs,
                     non_input_regs,
                     [operands[0], operands[1]]
+                )
+                # These instructions don't modify registers.
+                continue
+            elif insn.id in [ARM_INS_STRD]:
+                input_regs = self.test_and_add_input_registers(
+                    input_regs,
+                    non_input_regs,
+                    [operands[0], operands[1], operands[2]]
                 )
                 # These instructions don't modify registers.
                 continue
