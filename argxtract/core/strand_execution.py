@@ -3125,7 +3125,6 @@ class StrandExecution:
     #---------------------------- Memory Operations -------------------------
     
     def get_address_type(self, address, memory_map=None):
-        # DATA
         data_region = list(common_objs.data_region.keys())
         data_region.sort()
         if len(data_region) > 0:
@@ -3134,36 +3133,16 @@ class StrandExecution:
             if ((address >= start_data_region) 
                     and (address <= end_data_region)):
                 return consts.ADDRESS_DATA
-        # RAM.
-        start_ram_address = common_objs.ram_base
-        end_ram_address = start_ram_address + common_objs.ram_length
-        if ((address >= start_ram_address) 
-                and (address <= end_ram_address)):
-            return consts.ADDRESS_RAM
         # Firmware.
         start_fw_address = self.all_addresses[0]
-        end_fw_address = common_objs.code_end_address
+        # Don't use common_objs.code_end_address as end of f/w address
+        #  because .rodata might be part of the remaining file.
+        end_fw_address = self.all_addresses[-1] 
         if ((address >= start_fw_address) 
                 and (address <= end_fw_address)):
             return consts.ADDRESS_FIRMWARE
-            
-        if memory_map == None:
-            return None
-        # Stack. Technically, this is a stack/RAM combination.
-        stack_addresses = list(memory_map.keys())
-        stack_addresses.sort()
-        if len(stack_addresses) == 0:
-            stack_max = int(common_objs.application_vector_table['initial_sp'])
-            stack_min = stack_max
-        else:
-            stack_max = max(stack_addresses)
-            stack_min = min(stack_addresses)
-        allowable_min = stack_min - 256
-        if ((address >= allowable_min) 
-                and (address <= stack_max)):
-            return consts.ADDRESS_STACK
-        # Default
-        return None
+        # Default to RAM.
+        return consts.ADDRESS_RAM
     
     def get_register_bytes(self, registers, address, dtype='hex'):
         value = None
