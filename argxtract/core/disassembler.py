@@ -131,17 +131,20 @@ class FirmwareDisassembler:
             vector_table_entry = struct.unpack('<I', image_file.read(4))[0]
             if avt_entry == 'initial_sp':
                 if vector_table_entry == 0x00000000:
-                    print('SP1')
                     return False
                 if vector_table_entry%2 != 0:
-                    print('SP2')
+                    return False
+            elif avt_entry == 'reset':
+                if vector_table_entry == 0x00000000:
+                    return False
+                if vector_table_entry%2 != 1:
                     return False
             elif avt_entry != 'systick':
                 if vector_table_entry == 0x00000000:
                     continue
                 if vector_table_entry%2 != 1:
-                    print('avt')
                     return False
+            if vector_table_entry%2 == 1:
                 vector_table_entry -= 1
             application_vector_table[avt_entry] = vector_table_entry
         
