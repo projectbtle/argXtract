@@ -40,6 +40,9 @@ class FirmwareDisassembler:
         # Initialise app code base.
         app_code_base = 0x00000000
         
+        # DIsassemble the firmware.
+        self.create_disassembled_object()
+        
         # Populate interrupt handler addresses.
         interrupt_handlers = []
         reset_address = common_objs.application_vector_table['reset']
@@ -52,9 +55,12 @@ class FirmwareDisassembler:
             address = hex(common_objs.application_vector_table[key])
             interrupt_handlers.append(address)
         
-        # DIsassemble the firmware.
-        self.create_disassembled_object()
-        
+        # Estimate default handler.
+        default_handler = self.estimate_default_handler()
+        if default_handler != None:
+            if default_handler not in interrupt_handlers:
+                interrupt_handlers.append(default_handler)
+
         # Populate self-targeting branch addresses.
         self_targeting_branches = self.populate_self_targeting_branches()
         
@@ -87,7 +93,7 @@ class FirmwareDisassembler:
                         continue
                     logging.trace('Match found!')
                     possible_code_bases.append(app_code_base)
-        
+                    
         if len(list(set(possible_code_bases))) > 1:
             code_base_str = ''
             for possible_code_base in possible_code_bases:
@@ -158,6 +164,52 @@ class FirmwareDisassembler:
         logging.info(debug_msg)
         return True
     
+    def estimate_default_handler(self):
+        logging.trace('Estimating default handler')
+        interrupt_handlers = []
+        
+        for key in common_objs.application_vector_table:
+            if key in ['initial_sp', 'reset', 'systick']:
+                continue
+            if common_objs.application_vector_table[key] == 0:
+                continue
+            interrupt_handlers.append(common_objs.application_vector_table[key])
+        c = Counter(interrupt_handlers)
+        most_common, count = c.most_common()[0]
+        if count > 1:
+            return hex(most_common)
+        
+        min_value = min(interrupt_handlers)
+        max_value = max(interrupt_handlers)
+        file_size = len(common_objs.core_bytes) - 0x3c
+        
+        image_file = open(common_paths.path_to_fw, 'rb')
+        address = 0x3c-4
+        while address < 0x400:
+            address += 4
+            image_file.seek(0)
+            image_file.seek(address)
+            vector_table_entry = struct.unpack('<I', image_file.read(4))[0]
+            if vector_table_entry == 0:
+                continue
+            if vector_table_entry == 0xffffffff:
+                continue
+            if vector_table_entry%2 == 0:
+                break
+            if vector_table_entry < min_value:
+                if ((max_value-vector_table_entry) > file_size):
+                    break
+            if vector_table_entry > max_value:
+                if ((vector_table_entry-min_value) > file_size):
+                    break
+            interrupt_handlers.append(vector_table_entry-1)
+            
+        c = Counter(interrupt_handlers)
+        most_common, count = c.most_common()[0]
+        if count > 1:
+            return hex(most_common)
+        return None
+    
     def populate_self_targeting_branches(self):
         self_targeting_branches = []
         for ins_address in common_objs.disassembled_firmware:
@@ -218,7 +270,10 @@ class FirmwareDisassembler:
                     continue
                 ordered_bytes = int(data_bytes, 16)
                 target_branch = ordered_bytes - 1 # Thumb mode needs -1
-                self_targeting_branches.append('{0:08x}'.format(target_branch))
+                formatted_target_branch = '{0:08x}'.format(target_branch)
+                formatted_ins_address = '{0:08x}'.format(ins_address)
+                if formatted_ins_address[-3:] == formatted_target_branch[-3:]:
+                    self_targeting_branches.append(formatted_ins_address)
         self_targeting_branches.sort()       
         return self_targeting_branches
         
@@ -238,7 +293,7 @@ class FirmwareDisassembler:
             image_file.seek(0)
             image_file.seek(address)
             entry = struct.unpack('<I', image_file.read(4))[0]
-            if ((entry == 0) or (entry == 4294967295)):
+            if ((entry == 0) or (entry == 0xffffffff)):
                 address += 4
                 continue
             if entry % 2 == 0:
@@ -1139,6 +1194,7 @@ class FirmwareDisassembler:
         return ins_address
                 
     def handle_potential_byte_misinterpretation_errors(self):
+        logging.trace('Checking for byte misinterpretations.')
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         
