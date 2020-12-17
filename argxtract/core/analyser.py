@@ -96,11 +96,6 @@ class FirmwareAnalyser:
         # Get application code base.
         if app_code_base == None:
             self.disassembler.estimate_app_code_base()
-            if common_objs.app_code_base == None:
-                logging.critical(
-                    'Unable to estimate app code base.'
-                )
-                return None
         else:
             common_objs.app_code_base = app_code_base
         common_objs.disassembly_start_address = common_objs.app_code_base
@@ -113,6 +108,12 @@ class FirmwareAnalyser:
         if vendor_match != True:
             logging.critical(
                 'Unable to match firmware to vendor.'
+            )
+            return None
+
+        if common_objs.app_code_base == None:
+            logging.critical(
+                'Unable to estimate app code base.'
             )
             return None
 
@@ -208,6 +209,9 @@ class FirmwareAnalyser:
         chipset_metadata = self.chipset_analyser.generate_output_metadata()
         if ((chipset_metadata != {}) and (chipset_metadata != None)):
             final_output['metadata'] = chipset_metadata
+        if 'metadata' not in final_output:
+            final_output['metadata'] = {}
+        final_output['metadata']['app_code_base'] = hex(common_objs.app_code_base)
         # Add output object.
         final_output['output'] = output_object['output']
         final_output['cois'] = output_object['cois']
