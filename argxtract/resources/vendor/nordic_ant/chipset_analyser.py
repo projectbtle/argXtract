@@ -70,50 +70,18 @@ class VendorChipsetAnalyser:
     def test_nordic(self):
         if self.embedded_softdevice == True:
             return True
-        image_file = open(common_paths.path_to_fw, 'rb')
-        is_pre13_sdk = self.test_for_nordic_vector_table(image_file, 0xBC)
-        is_post13_sdk = self.test_for_nordic_vector_table(image_file, 0x01FC)
-        image_file = None
-        if is_pre13_sdk == True:
-            common_objs.vector_table_size = 0xC0
+        if common_objs.vector_table_size == 0xC0:
             self.pre_sdk13 = True
             debug_msg = 'Vector table size matches sdk <13'
             logging.info(debug_msg)
             return True
-        elif is_post13_sdk == True:
-            common_objs.vector_table_size = 0x0200
+        elif common_objs.vector_table_size == 0x0200:
             self.pre_sdk13 = False
             debug_msg = 'Vector table size matches sdk >=13'
             logging.info(debug_msg)
             return True
         else:
             return False
-            
-    def test_for_nordic_vector_table(self, image_file, offset):
-        image_file.seek(0)
-        image_file.seek(offset)
-        end_vt = image_file.read(4).hex()
-        # There should be at least some separation between Vector Table
-        #  and start of code?
-        if ((end_vt != '00000000') and (end_vt != 'ffffffff')):
-            return False
-        # Code won't start with 0's or F's?
-        start_code = image_file.read(4).hex()
-        if ((start_code == '00000000') or (start_code == 'ffffffff')):
-            return False
-            
-        # Do we want more stringent checks?
-        # Maybe ensure that most of the next lines do have code?
-        zero_counter = 0
-        for i in range(5):
-            image_file.seek(0)
-            image_file.seek(offset + 4 + (i*0x10))
-            next_code = image_file.read(4).hex()
-            if (next_code == '00000000'):
-                zero_counter += 1
-        if zero_counter > 2:
-            return False
-        return True
         
     def check_for_embedded_softdevice(self):
         logging.info('Checking for embedded softdevice.')
