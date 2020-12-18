@@ -152,12 +152,18 @@ class FirmwareAnalyser:
                 + 'no calls to COIs. '
                 + 'It cannot be analysed using this tool.'
             )
-            return None
+            return self.process_output(
+                {'cois': [], 'output': {}, 'unhandled': []}, 
+                start_time
+            )
         
         """ Step 5: Trace """
         # Now do individual calls of interest.
         output_object = self.coi_processor.process_coi_chains()
+        
+        return self.process_output(output_object, start_time)
 
+    def process_output(self, output_object, start_time):
         """ Finalise. """
         final_output = self.add_metadata(output_object)
         serializable_output = self.convert_to_serializable(final_output)
@@ -212,6 +218,8 @@ class FirmwareAnalyser:
         if 'metadata' not in final_output:
             final_output['metadata'] = {}
         final_output['metadata']['app_code_base'] = hex(common_objs.app_code_base)
+        if output_object == {}:
+            return final_output
         # Add output object.
         final_output['output'] = output_object['output']
         final_output['cois'] = output_object['cois']
