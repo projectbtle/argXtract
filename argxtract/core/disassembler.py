@@ -52,13 +52,17 @@ class FirmwareDisassembler:
             #  in Cortex-M0.
             if key in ['initial_sp', 'reset', 'systick']:
                 continue
-            address = hex(common_objs.application_vector_table[key])
+            address = '{0:08x}'.format(common_objs.application_vector_table[key])
             interrupt_handlers.append(address)
         
         # Estimate default handler.
         default_handler = self.estimate_default_handler()
         if default_handler != None:
             if default_handler not in interrupt_handlers:
+                logging.trace(
+                    'Default handler estimated to be '
+                    + default_handler
+                )
                 interrupt_handlers.append(default_handler)
 
         # Populate self-targeting branch addresses.
@@ -71,30 +75,25 @@ class FirmwareDisassembler:
 
         # Check the self-targeting branches against interrupt handlers.
         # Hopefully there isn't more than one match.
-        possible_code_bases = []
-        for interrupt_handler in interrupt_handlers:
-            for self_targeting_branch in self_targeting_branches:
-                logging.trace(
-                    'Testing interrupt handler ' 
-                    + interrupt_handler
-                    + ' against self targeting branch at '
-                    + self_targeting_branch
-                )
-                if (self_targeting_branch.replace('0x', ''))[-3:] == interrupt_handler[-3:]:
-                    app_code_base = \
-                        int(interrupt_handler, 16) - int(self_targeting_branch, 16)
-                    if app_code_base < 0: continue
-                    # The range of values must include the Reset Handler.
-                    min_range = app_code_base
-                    max_range = app_code_base + len(common_objs.core_bytes)
-                    if reset_address < min_range:
-                        continue
-                    if reset_address > max_range:
-                        continue
-                    logging.trace('Match found!')
-                    possible_code_bases.append(app_code_base)
+        possible_code_bases = self.estimate_code_base(
+            interrupt_handlers, 
+            self_targeting_branches,
+            -3, # Check last 3 hex chars.
+            reset_address
+        )
                     
-        if len(list(set(possible_code_bases))) > 1:
+        if len(list(set(possible_code_bases))) == 0:
+            logging.trace('Trying lower accuracy app code base estimation.')
+            possible_code_bases = self.estimate_code_base(
+                interrupt_handlers, 
+                self_targeting_branches,
+                -2, # Check last 2 hex chars.
+                reset_address
+            )
+                
+        if len(list(set(possible_code_bases))) == 1:
+            app_code_base = possible_code_bases[0]
+        elif len(list(set(possible_code_bases))) > 1:
             code_base_str = ''
             for possible_code_base in possible_code_bases:
                 code_base_str = code_base_str + hex(possible_code_base) + ';'
@@ -103,8 +102,28 @@ class FirmwareDisassembler:
                 + code_base_str
             )
             c = Counter(possible_code_bases)
-            app_code_base, _ = c.most_common()[0]
-            
+            possible_app_code_base, count = c.most_common()[0]
+            if count > 1:
+                app_code_base = possible_app_code_base
+            else:    
+                # Prioritise the code base that was estimated using default handler.
+                if default_handler != None:
+                    possible_code_bases = self.estimate_code_base(
+                        [default_handler], 
+                        self_targeting_branches,
+                        -3, # Check last 3 hex chars.
+                        reset_address
+                    )
+                    if len(possible_code_bases) == 0:
+                        possible_code_bases = self.estimate_code_base(
+                            [default_handler], 
+                            self_targeting_branches,
+                            -2, # Check last 2 hex chars.
+                            reset_address
+                        )
+                    c = Counter(possible_code_bases)
+                    app_code_base, count = c.most_common()[0]                            
+            logging.trace('Using ' + hex(app_code_base) + ' as app code base.')
 
         # If the reset handler doesn't fit into the range:
         #  (app_code_base, app_code_base+file_size)
@@ -177,7 +196,7 @@ class FirmwareDisassembler:
         c = Counter(interrupt_handlers)
         most_common, count = c.most_common()[0]
         if count > 1:
-            return hex(most_common)
+            return '{0:08x}'.format(most_common)
         
         min_value = min(interrupt_handlers)
         max_value = max(interrupt_handlers)
@@ -207,8 +226,35 @@ class FirmwareDisassembler:
         c = Counter(interrupt_handlers)
         most_common, count = c.most_common()[0]
         if count > 1:
-            return hex(most_common)
+            return '{0:08x}'.format(most_common)
         return None
+    
+    def estimate_code_base(self, interrupt_handlers, self_targeting_branches,
+            num_hex, reset_address):
+        possible_code_bases = []
+        for interrupt_handler in interrupt_handlers:
+            for self_targeting_branch in self_targeting_branches:
+                logging.trace(
+                    'Testing interrupt handler ' 
+                    + interrupt_handler
+                    + ' against self targeting branch at '
+                    + self_targeting_branch
+                )
+                current_app_code_base = 0
+                if (self_targeting_branch.replace('0x', ''))[num_hex:] == interrupt_handler[num_hex:]:
+                    current_app_code_base = \
+                        int(interrupt_handler, 16) - int(self_targeting_branch, 16)
+                if current_app_code_base < 0: continue
+                # The range of values must include the Reset Handler.
+                min_range = current_app_code_base
+                max_range = current_app_code_base + len(common_objs.core_bytes)
+                if reset_address < min_range:
+                    continue
+                if reset_address > max_range:
+                    continue
+                logging.trace('Match found!')
+                possible_code_bases.append(current_app_code_base)
+        return possible_code_bases
     
     def populate_self_targeting_branches(self):
         self_targeting_branches = []
@@ -285,6 +331,10 @@ class FirmwareDisassembler:
         address_max = file_size_in_bytes
         image_file = open(common_paths.path_to_fw, 'rb')
         
+        app_code_base = common_objs.app_code_base
+        if app_code_base == None:
+            app_code_base = 0
+            
         address = vector_table_size
         is_code = False
         while (is_code == False):
@@ -298,7 +348,7 @@ class FirmwareDisassembler:
                 continue
             if entry % 2 == 0:
                 break
-            relative_entry = entry - 1 - common_objs.app_code_base
+            relative_entry = entry - 1 - app_code_base
             if relative_entry%2 == 0:
                 if ((relative_entry >= address_min) 
                         and (relative_entry < address_max)):
@@ -313,7 +363,7 @@ class FirmwareDisassembler:
             + hex(vector_table_size)
         )
         common_objs.code_start_address = \
-            common_objs.app_code_base + vector_table_size
+            app_code_base + vector_table_size
         logging.info(
             'Start of code is ' 
             + hex(common_objs.code_start_address)
