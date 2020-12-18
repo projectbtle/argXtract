@@ -349,11 +349,14 @@ class FirmwareDisassembler:
             if entry % 2 == 0:
                 break
             relative_entry = entry - 1 - app_code_base
-            if relative_entry%2 == 0:
-                if ((relative_entry >= address_min) 
-                        and (relative_entry < address_max)):
-                    address += 4
-                    continue
+            if ((relative_entry >= address_min) 
+                    and (relative_entry < address_max)):
+                address += 4
+                continue
+            # Sometimes, VT appears to contain entries to underlying stack.
+            if entry < app_code_base:
+                address += 4
+                continue
             break
 
         vector_table_size = address   
@@ -1247,23 +1250,8 @@ class FirmwareDisassembler:
         logging.trace('Checking for byte misinterpretations.')
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
-        
-        max_vector_table_size = 0x400
-        app_code_bytes = common_objs.core_bytes[max_vector_table_size:]
-        code_split = app_code_bytes.split(
-            bytearray.fromhex('0000000000000000000000000000000000000000000000000000000000000000')
-        )
-        for single_split in code_split:
-            if single_split == b'':
-                continue
-            else:
-                first_split = single_split
-                break
-        length_first_split = len(first_split)
-        if length_first_split%2 == 1: length_first_split += 1
-        address_end = max_vector_table_size + length_first_split
 
-        ins_address = 0x3c
+        ins_address = 0x3c + common_objs.app_code_base
         address_end = all_addresses[-1]
         while ins_address <= address_end:
             ins_address = utils.get_next_address(
@@ -1281,7 +1269,8 @@ class FirmwareDisassembler:
             
             if ((insn.mnemonic.startswith('v')) 
                     and (len(insn.bytes) == 4)
-                    and ('ff' in bytes)):
+                    #and ('ff' in bytes)
+                ):
                 self.handle_byte_misinterpretation(ins_address, insn)
     
     def is_byte_specific_invalid_or_nop(self, address):
