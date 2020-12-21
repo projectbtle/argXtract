@@ -784,6 +784,10 @@ class RegisterEvaluator:
         return is_branch_condition_satisfied
         
     def check_condition_satisfied(self, condition, flags):
+        logging.trace(
+            'Checking whether condition satisfied for flags: '
+            + str(flags)
+        )
         # To bypass conditional checks, we simply return None.
         # This forces the conditional branch to execute both paths.
         if common_objs.bypass_all_conditional_checks == True:
@@ -855,7 +859,7 @@ class RegisterEvaluator:
         elif condition == ARM_CC_LS:
             if ((flags['c'] == None) or (flags['z'] == None)):
                 is_condition_satisfied = None
-            elif ((flags['c'] == 0) and (flags['z'] == 1)):
+            elif ((flags['c'] == 0) or (flags['z'] == 1)):
                 is_condition_satisfied = True
             else:
                 is_condition_satisfied = False
@@ -883,7 +887,7 @@ class RegisterEvaluator:
         elif condition == ARM_CC_LE:
             if ((flags['z'] == None) or (flags['n'] == None) or (flags['v'] == None)):
                 is_condition_satisfied = None
-            elif ((flags['z'] == 1) and (flags['n'] != flags['v'])):
+            elif ((flags['z'] == 1) or (flags['n'] != flags['v'])):
                 is_condition_satisfied = True
             else:
                 is_condition_satisfied = False 
