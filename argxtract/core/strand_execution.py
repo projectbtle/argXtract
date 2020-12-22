@@ -3468,7 +3468,6 @@ class StrandExecution:
         
     def print_memory(self, memory):
         # Sort memory obj.
-        print(memory)
         memory = {key:memory[key] for key in sorted(memory.keys())}
         string_mem = '{'
         for address in memory:
