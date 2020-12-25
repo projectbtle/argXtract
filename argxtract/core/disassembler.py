@@ -412,7 +412,7 @@ class FirmwareDisassembler:
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
         common_objs.code_end_address = all_addresses[-1]
-        self.handle_potential_byte_misinterpretation_errors()
+        self.handle_potential_misinterpretation_errors()
     
     def identify_inline_data(self):   
         logging.info('Identifying inline data.')
@@ -1249,7 +1249,7 @@ class FirmwareDisassembler:
 
         return ins_address
                 
-    def handle_potential_byte_misinterpretation_errors(self):
+    def handle_potential_misinterpretation_errors(self):
         logging.trace('Checking for byte misinterpretations.')
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
@@ -1267,14 +1267,17 @@ class FirmwareDisassembler:
             if insn == None: continue
             if insn.id == 0: continue
             
+            # Handle incorrect IT instructions.
+            if insn.id == ARM_INS_IT:
+                if insn.cc == ARM_CC_AL:
+                    self.handle_misinterpretation(ins_address, insn)
+                    
+            # Handle incorrect bytes.
             # Capstone seems to misinterpret most when 'ff' is in the byte array.
             bytes = ''.join('{:02x}'.format(x) for x in insn.bytes)
-            
             if ((insn.mnemonic.startswith('v')) 
-                    and (len(insn.bytes) == 4)
-                    #and ('ff' in bytes)
-                ):
-                self.handle_byte_misinterpretation(ins_address, insn)
+                    and (len(insn.bytes) == 4)):
+                self.handle_misinterpretation(ins_address, insn)
     
     def is_byte_specific_invalid_or_nop(self, address):
         if utils.is_valid_code_address(address) != True:
@@ -1290,7 +1293,7 @@ class FirmwareDisassembler:
                 return True
         return False
     
-    def handle_byte_misinterpretation(self, ins_address, insn):
+    def handle_misinterpretation(self, ins_address, insn):
         logging.debug('Handling potential incorrect insn at ' + hex(ins_address))
         insn_bytes = common_objs.disassembled_firmware[ins_address]['insn'].bytes
         insn = md.disasm(
@@ -1309,6 +1312,8 @@ class FirmwareDisassembler:
                 + " "
                 + code_start_insn.mnemonic
             )
+        if len(insn_bytes) == 2: return
+        
         insn2 = md.disasm(
             insn_bytes[2:4], 
             ins_address+2
