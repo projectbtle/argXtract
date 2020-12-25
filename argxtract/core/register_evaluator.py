@@ -4118,7 +4118,7 @@ class RegisterEvaluator:
                 dtype
             )
             if src_register == ARM_REG_PC:
-                if type(src_value) == int:
+                if type(src_value) is int:
                     src_value = np.uint32(src_value)
         else:
             logging.critical('Non imm/reg src ' + instruction.op_str)
