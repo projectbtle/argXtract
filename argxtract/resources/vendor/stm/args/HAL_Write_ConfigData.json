@@ -1,0 +1,37 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "offset": {
+                    "ptr_val": "value",
+                    "length_bits": 8,
+                    "type": "uint8"
+                }
+            }
+        },
+        "1": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "length": {
+                    "ptr_val": "value",
+                    "length_bits": 8,
+                    "type": "uint8"
+                }
+            }
+        },
+        "2": {
+            "in_out": "in",
+            "ptr_val": "pointer",
+            "data": {
+                "value": {
+                    "ptr_val": "value",
+                    "length_bits": "#length * 8",
+                    "type": "hex"
+                }
+            }
+        }
+    }
+}
