@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import copy
 import struct
 import logging
 import numpy as np
@@ -323,6 +324,7 @@ class CoiProcessor:
         
     """ ================== Argument processing ================== """
     def process_trace_output(self, trace_output):
+        self.temporary_object = {}
         coi_name = list(trace_output.keys())[0]
         if coi_name not in self.output_object['output']:
             self.output_object['output'][coi_name] = []
@@ -436,6 +438,7 @@ class CoiProcessor:
         # Assign to output object.
         for key in structured_data:
             output_object['output'][key] = structured_data[key]
+            self.temporary_object[key] = structured_data[key]
             
         # If custom output:
         # Note that this is different to just "out"! This has input AND output.
@@ -807,7 +810,7 @@ class CoiProcessor:
         length_bits = data_structure['length_bits']
         if type(length_bits) is int:
             return length_bits
-        
+
         split_pattern = length_bits.split(' ')
         arithmetic_function = []
         for element in split_pattern:
@@ -822,27 +825,29 @@ class CoiProcessor:
                     current_object
                 )
                 arithmetic_function.append(int(element_value))
-        
+        output = arithmetic_function[0]
         if '*' in arithmetic_function:
             arithmetic_function.remove('*')
-            output = arithmetic_function[0]
             for value in arithmetic_function[1:]:
                 output = output * value
         elif '+' in arithmetic_function:
             arithmetic_function.remove('+')
-            output = arithmetic_function[0]
             for value in arithmetic_function[1:]:
                 output = output + value
         elif '-' in arithmetic_function:
             arithmetic_function.remove('-')
-            output = arithmetic_function[0]
             for value in arithmetic_function[1:]:
                 output = output - value
         return output
         
     def get_previously_processed_data(self, pattern, current_object):
+        if pattern.startswith('#'):
+            pattern = pattern[1:]
+            value_to_store = copy.deepcopy(self.temporary_object)
+        else:
+            value_to_store = copy.deepcopy(current_object)
+            
         split_path = pattern.split('->')
-        value_to_store = current_object
         for component in split_path:
             value_to_store = value_to_store[component]
         return value_to_store
