@@ -409,6 +409,9 @@ class FirmwareDisassembler:
     def disassemble_and_handle_byte_errors(self):
         disassembled_fw = self.disassemble_fw()
         common_objs.disassembled_firmware = disassembled_fw
+        all_addresses = list(common_objs.disassembled_firmware.keys())
+        all_addresses.sort()
+        common_objs.code_end_address = all_addresses[-1]
         self.handle_potential_byte_misinterpretation_errors()
     
     def identify_inline_data(self):   
@@ -2005,7 +2008,7 @@ class FirmwareDisassembler:
         
     def test_arm_arch(self):
         """Test for ARM architecture version. We use this in function matching."""
-        
+
         arch7m_ins = [ARM_INS_UDIV, ARM_INS_TBB, ARM_INS_TBH]
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
@@ -2018,6 +2021,7 @@ class FirmwareDisassembler:
                 continue
             if common_objs.disassembled_firmware[ins_address]['insn'].id in arch7m_ins:
                 common_objs.arm_arch = consts.ARMv7M
+        logging.debug('ARM architecture estimated to be ' + common_objs.arm_arch)
                 
     def get_mem_access_pc_value(self, ins_address):
         curr_pc_value = ins_address + 4
