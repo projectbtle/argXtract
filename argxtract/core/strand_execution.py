@@ -23,7 +23,7 @@ class StrandExecution:
     """This is essentially a simplified version of the RegisterEvaluator."""
     
     def __init__(self, all_addresses):
-        self.max_time = 100
+        self.max_time = 300
         self.end_points = []
         self.all_addresses = all_addresses
         self.check_error = True
@@ -39,12 +39,15 @@ class StrandExecution:
             + ' and '
             + str(register_object)
         )
-        
+        start_time = timeit.default_timer()
         self.check_error = check_error
         
         ins_address = start_point
         code_end = common_objs.code_end_address
         while ins_address <= code_end:
+            if ((timeit.default_timer() - start_time) > self.max_time):
+                return (ins_address, memory_map, register_object)
+                
             register_object[ARM_REG_PC] = self.get_pc_value(ins_address)
         
             pre_exec_address = ins_address
@@ -81,8 +84,43 @@ class StrandExecution:
             logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
 
             # Branches require special processing.
-            if opcode_id in [ARM_INS_B, ARM_INS_BX,
+            if opcode_id in [ARM_INS_B, ARM_INS_BX, ARM_INS_BL, ARM_INS_BLX,
                     ARM_INS_CBNZ, ARM_INS_CBZ]:
+                # If BL, BLX, get return address and update Link Register.
+                if opcode_id in [ARM_INS_BL, ARM_INS_BLX]:
+                    link_return_address = \
+                        self.all_addresses[self.all_addresses.index(ins_address) + 1]
+                    register_object[ARM_REG_LR] = \
+                        '{0:08x}'.format(link_return_address) 
+                    
+                    logging.debug(
+                        'Link return address is '
+                        + '{0:08x}'.format(link_return_address)
+                    )
+                # We process certain functions differently.
+                if opcode_id == ARM_INS_BL:
+                    branch_target = insn_object[ins_address]['insn'].operands[0].value.imm
+                    if branch_target in common_objs.replace_functions:
+                        replace_function = \
+                            common_objs.replace_functions[branch_target]
+                        func_type = replace_function['type']
+                        if func_type == consts.FN_MEMSET:
+                            memory_map = self.process_memset(
+                                memory_map,
+                                register_object,
+                                replace_function,
+                                ins_address
+                            )
+                            ins_address = self.get_next_address(self.all_addresses, ins_address)
+                            if ins_address == None: break
+                            continue
+                        elif func_type == consts.FN_UDIV:
+                            register_object = self.process_software_udiv(
+                                register_object
+                            )
+                            ins_address = self.get_next_address(self.all_addresses, ins_address)
+                            if ins_address == None: break
+                            continue
                 ins_address = self.process_branch_instruction(
                         register_object,
                         memory_map,
@@ -180,13 +218,11 @@ class StrandExecution:
         opcode_id = insn.id
         operands = insn.operands
         next_reg_values = register_object
-
-        should_execute_next_instruction = False
         
         # Get branch target.
-        if opcode_id in [ARM_INS_B]:
+        if opcode_id in [ARM_INS_B, ARM_INS_BL]:
             branch_target = operands[0].value.imm
-        elif opcode_id in [ARM_INS_BX]:
+        elif opcode_id in [ARM_INS_BX, ARM_INS_BLX]:
             branch_register = operands[0].value.reg
             branch_target = self.get_register_bytes(
                 next_reg_values,
@@ -207,15 +243,16 @@ class StrandExecution:
             branch_target = operands[1].value.imm
         
         # If branch_target is denylisted, don't proceed.
-        if (branch_target not in insn_object):
+        if ((branch_target in common_objs.denylisted_functions) 
+                or (branch_target not in insn_object)):
+            logging.trace('Branch target denylisted or not present.')
             ins_address = self.get_next_address(self.all_addresses, ins_address)
-            executed_branch = False
-            should_execute_next_instruction = True
             return ins_address
             
         # Check whether we execute the branch, based on conditionals.
         # If it's a conditional branch, then we use previous condition check.
         branch_condition_satisfied = None
+        if insn.cc == ARM_CC_AL: branch_condition_satisfied = True
         if (((insn.cc != ARM_CC_AL) and (insn.cc != ARM_CC_INVALID)) 
                 or (opcode_id in [ARM_INS_CBZ, ARM_INS_CBNZ])):
             branch_condition_satisfied = self.check_branch_condition_satisfied(
@@ -224,12 +261,12 @@ class StrandExecution:
                 condition_flags,
                 next_reg_values
             )
-            if branch_condition_satisfied == False:
-                should_execute_next_instruction = True
+            if ((branch_condition_satisfied == False) 
+                    or (branch_condition_satisfied == None)):
                 branch_target = None
             
         should_branch = False
-        if branch_condition_satisfied != False:
+        if branch_condition_satisfied == True:
             # Check trace path-related conditions for branching.
             (should_branch, ins_address) = self.check_should_branch(
                 insn_object,
@@ -240,10 +277,9 @@ class StrandExecution:
         # Check for conditions where we would want to execute next instruction
         #  in the event we are NOT branching.
         if (should_branch == False):
-            executed_branch = False
-            should_execute_next_instruction = True
             ins_address = self.get_next_address(self.all_addresses, ins_address)
-            return ins_address
+        else:
+            ins_address = branch_target
 
         return ins_address
 
@@ -2118,13 +2154,13 @@ class StrandExecution:
         if src_value == None:
             return (next_reg_values, condition_flags)
         
-        np_dtype = utils.get_numpy_type([src_value])
-        result = np.bitwise_not(
-            src_value.astype(np_dtype),
-            dtype=np_dtype,
-            casting='safe'
-        )
-        
+        bit_length = utils.get_bit_length(src_value)
+        mult = 0xFFFFFFFF
+        if bit_length == 8:
+            mult = 0xFF
+        elif bit_length == 16:
+            mult = 0xFFFF
+        result = (~src_value & mult)
         next_reg_values = self.store_register_bytes(
             next_reg_values,
             dst_operand,
@@ -2991,6 +3027,8 @@ class StrandExecution:
                 src_register,
                 dtype
             )
+            if src_register == ARM_REG_PC:
+                src_value = np.uint32(src_value)
         else:
             logging.critical('Non imm/reg src ' + instruction.op_str)
             return (None, None)

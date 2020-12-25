@@ -3017,12 +3017,13 @@ class RegisterEvaluator:
             null_registers[dst_operand] = {}
             return (next_reg_values, condition_flags, null_registers)
         
-        np_dtype = utils.get_numpy_type([src_value])
-        result = np.bitwise_not(
-            src_value.astype(np_dtype),
-            dtype=np_dtype,
-            casting='safe'
-        )
+        bit_length = utils.get_bit_length(src_value)
+        mult = 0xFFFFFFFF
+        if bit_length == 8:
+            mult = 0xFF
+        elif bit_length == 16:
+            mult = 0xFFFF
+        result = (~src_value & mult)
         
         next_reg_values = self.store_register_bytes(
             next_reg_values,
@@ -4116,6 +4117,8 @@ class RegisterEvaluator:
                 src_register,
                 dtype
             )
+            if src_register == ARM_REG_PC:
+                src_value = np.uint32(src_value)
         else:
             logging.critical('Non imm/reg src ' + instruction.op_str)
             return (None, None)
