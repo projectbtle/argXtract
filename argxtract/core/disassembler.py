@@ -604,6 +604,12 @@ class FirmwareDisassembler:
                 ins_address = self.handle_data_byte(ins_address)
                 continue
                 
+            # Handle incorrect IT instructions.
+            if ((insn.id == ARM_INS_IT) and (insn.cc == ARM_CC_AL)):
+                if 'e' in insn.mnemonic:
+                    common_objs.disassembled_firmware[ins_address]['is_data'] = True
+                    common_objs.disassembled_firmware[ins_address]['insn'] = None
+                    
             # If it's a BL to ARM_SWITCH8:
             if insn.id == ARM_INS_BL:
                 target_address_int = insn.operands[0].value.imm
@@ -1267,11 +1273,6 @@ class FirmwareDisassembler:
             if insn == None: continue
             if insn.id == 0: continue
             
-            # Handle incorrect IT instructions.
-            if insn.id == ARM_INS_IT:
-                if insn.cc == ARM_CC_AL:
-                    self.handle_misinterpretation(ins_address, insn)
-                    
             # Handle incorrect bytes.
             # Capstone seems to misinterpret most when 'ff' is in the byte array.
             bytes = ''.join('{:02x}'.format(x) for x in insn.bytes)
