@@ -52,7 +52,7 @@ def sort_dict_keys(dictionary):
         sorted_dictionary[key] = dictionary[key]
     return sorted_dictionary
     
-def convert_type(value, dtype, byte_length='default'):
+def convert_type(value, dtype, byte_length='default', signed=None):
     if dtype == 'int':
         if type(value) is int:
             value = value
@@ -60,20 +60,35 @@ def convert_type(value, dtype, byte_length='default'):
             length = len(value)
             value = int(value, 16)
             if length == 2:
-                if value > 127:
-                    value = np.uint8(value)
-                else:
+                if signed == True:
                     value = np.int8(value)
+                elif signed == False:
+                    np.uint8(value)
+                else:
+                    if value > 127:
+                        value = np.uint8(value)
+                    else:
+                        value = np.int8(value)
             elif length == 4:
-                if value > 32767:
+                if signed == True:
+                    value = np.int16(value)
+                elif signed == False:
                     value = np.uint16(value)
                 else:
-                    value = np.int16(value)
+                    if value > 32767:
+                        value = np.uint16(value)
+                    else:
+                        value = np.int16(value)
             elif length == 8:
-                if value > 2147483647:
+                if signed == True:
+                    value = np.int32(value)
+                elif signed == False:
                     value = np.uint32(value)
                 else:
-                    value = np.int32(value)
+                    if value > 2147483647:
+                        value = np.uint32(value)
+                    else:
+                        value = np.int32(value)
     elif dtype == 'hex':
         if type(value) is str:
             value = value
@@ -92,7 +107,7 @@ def convert_type(value, dtype, byte_length='default'):
         elif type(value) is np.int64:
             value = '{0:08x}'.format(value)
         elif type(value) is int:
-            value = '{0:02x}'.format(value)
+            value = '{0:08x}'.format(value)
         elif type(value) is bytes:
             value = value.hex()
     elif dtype == 'bytes':
@@ -107,7 +122,7 @@ def convert_type(value, dtype, byte_length='default'):
             )
         elif type(value) is bytes:
             value = value
-    elif dtype == 'int':
+    elif dtype == 'bin':
         if type(value) is np.int32:
             value = get_binary_representation(value, 32)
         elif type(value) is np.uint32:
