@@ -571,11 +571,7 @@ class StrandExecution:
                 + hex(branch_address)
             )
             return
-        debug_msg = (
-            'Table branch to ' 
-            + hex(branch_address)
-        )
-         
+        
         # Branch, either to address indicated by table, or to 
         #  the skip address.
         (should_branch, ins_address) = self.check_should_branch(
@@ -586,8 +582,10 @@ class StrandExecution:
         if should_branch != True:
             branch_address = skip_address
             
-        debug_msg += (' with counter: ' + str(self.global_counter))
-        logging.debug(debug_msg)
+        logging.debug(
+            'Table branch to ' 
+            + hex(branch_address)
+        )
         
         return branch_address  
             
@@ -1020,6 +1018,13 @@ class StrandExecution:
             )
         elif instruction.id == ARM_INS_SBC:
             (register_object, condition_flags) = self.process_sbc(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags
+            )
+        elif instruction.id == ARM_INS_SDIV:
+            (register_object) = self.process_sdiv(
                 ins_address,
                 instruction,
                 register_object,
@@ -2055,6 +2060,7 @@ class StrandExecution:
         accumulate = getattr(accumulate, "tolist", lambda: accumulate)()
         mul_value = value1 * value2
         mul_value = accumulate - mul_value 
+        mul_value = np.int32(mul_value)
         mul_value = '{0:08x}'.format(mul_value)
         mul_value = mul_value.zfill(8)
         result = mul_value[-8:]
@@ -2667,6 +2673,54 @@ class StrandExecution:
         )
         return (next_reg_values)
         
+    def process_sdiv(self, ins_address, instruction, current_reg_values,
+                            condition_flags):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        opcode_id = instruction.id
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values)
+        
+        if len(operands) == 2:
+            numerator_operand = operands[0]
+            denominator_operand = operands[1]
+        else:
+            numerator_operand = operands[1]
+            denominator_operand = operands[2]
+
+        (numerator, _) = self.get_src_reg_value(
+            next_reg_values, 
+            numerator_operand, 
+            'int',
+            signed=True
+        )
+        if numerator == None: 
+            return (next_reg_values)
+        (denominator, _) = self.get_src_reg_value(
+            next_reg_values, 
+            denominator_operand, 
+            'int',
+            signed=True
+        )
+        if denominator == None: 
+            return (next_reg_values)
+        if denominator == 0:
+            value = 0
+        else:
+            value = numerator//denominator
+        value = np.int32(value)
+        value = '{0:08x}'.format(value)
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            value,
+            True
+        )
+        return (next_reg_values)
+        
     def process_stm(self, ins_address, instruction, current_reg_values, 
                         memory_map, condition_flags):
         next_reg_values = current_reg_values
@@ -3010,7 +3064,7 @@ class StrandExecution:
         return dst_operand
         
     def get_src_reg_value(self, current_reg_values, src_operand, dtype='hex',
-                            carry_in=None):
+                            carry_in=None, signed=None):
         if src_operand.type == ARM_OP_IMM:
             src_value = src_operand.value.imm
             if src_value < 0:
@@ -3035,12 +3089,12 @@ class StrandExecution:
             return (None, None)
 
         if carry_in == None:
-            src_value = utils.convert_type(src_value, dtype)        
+            src_value = utils.convert_type(src_value, dtype, signed=signed)        
             return (src_value, carry_in)
         
         carry = carry_in
         if src_operand.shift.value != 0:
-            src_value = utils.convert_type(src_value, 'int')
+            src_value = utils.convert_type(src_value, 'int', signed=signed)
             shift_value = src_operand.shift.value
             shift_type = src_operand.shift.type
             if shift_type == ARM_SFT_ASR:
@@ -3057,7 +3111,7 @@ class StrandExecution:
                 )
         else:
             carry = carry_in
-        src_value = utils.convert_type(src_value, dtype)        
+        src_value = utils.convert_type(src_value, dtype, signed=signed)        
         return (src_value, carry)
         
     def get_shift_value(self, current_reg_values, shift_operand):

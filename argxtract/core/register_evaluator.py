@@ -1614,6 +1614,14 @@ class RegisterEvaluator:
                 condition_flags,
                 null_registers
             )
+        elif instruction.id == ARM_INS_SDIV:
+            (register_object, null_registers) = self.process_sdiv(
+                ins_address,
+                instruction,
+                register_object,
+                condition_flags,
+                null_registers
+            )
         elif instruction.id in [ARM_INS_STR, ARM_INS_STREX, 
                 ARM_INS_STRH, ARM_INS_STREXH, 
                 ARM_INS_STRB, ARM_INS_STREXB]:
@@ -2884,6 +2892,7 @@ class RegisterEvaluator:
         accumulate = getattr(accumulate, "tolist", lambda: accumulate)()
         mul_value = value1 * value2
         mul_value = accumulate - mul_value 
+        mul_value = np.int32(mul_value)
         mul_value = '{0:08x}'.format(mul_value)
         mul_value = mul_value.zfill(8)
         result = mul_value[-8:]
@@ -3644,6 +3653,65 @@ class RegisterEvaluator:
         )
         return (next_reg_values, null_registers)
         
+    def process_sdiv(self, ins_address, instruction, current_reg_values,
+                            condition_flags, null_registers):
+        next_reg_values = current_reg_values
+        operands = instruction.operands
+        opcode_id = instruction.id
+        
+        dst_operand = self.get_dst_operand(operands[0])
+        if dst_operand == None: 
+            return (next_reg_values, null_registers)
+        
+        if len(operands) == 2:
+            numerator_operand = operands[0]
+            denominator_operand = operands[1]
+        else:
+            numerator_operand = operands[1]
+            denominator_operand = operands[2]
+            
+        # Update null registers.
+        (null_registers, tainted) = self.update_null_registers(
+            null_registers,
+            [numerator_operand.value.reg, denominator_operand.value.reg],
+            [dst_operand]
+        )
+        if tainted == True: 
+            condition_flags = self.initialise_condition_flags()
+            
+        (numerator, _) = self.get_src_reg_value(
+            next_reg_values, 
+            numerator_operand, 
+            'int',
+            signed=True
+        )
+        if numerator == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        (denominator, _) = self.get_src_reg_value(
+            next_reg_values, 
+            denominator_operand, 
+            'int',
+            signed=True
+        )
+        if denominator == None: 
+            null_registers[dst_operand] = {}
+            return (next_reg_values, null_registers)
+        if denominator == 0:
+            value = 0
+        else:
+            value = numerator//denominator
+        value = np.int32(value)
+        value = '{0:08x}'.format(value)
+        
+        next_reg_values = self.store_register_bytes(
+            next_reg_values,
+            dst_operand,
+            value,
+            True
+        )
+        return (next_reg_values, null_registers)
+        
     def process_stm(self, ins_address, instruction, current_reg_values, 
                         memory_map, condition_flags, null_registers):
         next_reg_values = current_reg_values
@@ -4100,7 +4168,7 @@ class RegisterEvaluator:
         return dst_operand
         
     def get_src_reg_value(self, current_reg_values, src_operand, dtype='hex',
-                            carry_in=None):
+                            carry_in=None, signed=None):
         if src_operand.type == ARM_OP_IMM:
             src_value = src_operand.value.imm
             if src_value < 0:
@@ -4125,12 +4193,12 @@ class RegisterEvaluator:
             return (None, None)
 
         if carry_in == None:
-            src_value = utils.convert_type(src_value, dtype)        
+            src_value = utils.convert_type(src_value, dtype, signed=signed)        
             return (src_value, carry_in)
         
         carry = carry_in
         if src_operand.shift.value != 0:
-            src_value = utils.convert_type(src_value, 'int')
+            src_value = utils.convert_type(src_value, 'int', signed=signed)
             shift_value = src_operand.shift.value
             shift_type = src_operand.shift.type
             if shift_type == ARM_SFT_ASR:
@@ -4147,7 +4215,7 @@ class RegisterEvaluator:
                 )
         else:
             carry = carry_in
-        src_value = utils.convert_type(src_value, dtype)        
+        src_value = utils.convert_type(src_value, dtype, signed=signed)        
         return (src_value, carry)
         
     def get_shift_value(self, current_reg_values, shift_operand):
