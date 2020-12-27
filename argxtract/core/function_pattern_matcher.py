@@ -269,6 +269,12 @@ class FunctionPatternMatcher:
                 start_address, 
                 regs
             )
+        if strand_eval_obj == None:
+            output_object = {
+                'mem': {},
+                'reg': {}
+            }
+            return output_object
             
         memory_map = {}
         for mem_key in test_set_input['mem']:
@@ -300,9 +306,16 @@ class FunctionPatternMatcher:
             init_regs[reg] = None
             
         init_regs[ARM_REG_SP] = 'c0002000'
-        
+        pc_value = strand_eval_obj.get_pc_value(trace_start)
+        if pc_value == None:
+            if trace_start+4 in all_addresses:
+                pc_value = trace_start+4
+            elif trace_start+2 in all_addresses:
+                pc_value = trace_start+2
+            else:
+                return (None, None, None, None)
         init_regs[ARM_REG_PC] = \
-            '{0:08x}'.format(strand_eval_obj.get_pc_value(trace_start))
+            '{0:08x}'.format(pc_value)
             
         for reg in regs:
             init_regs[reg] = regs[reg]
