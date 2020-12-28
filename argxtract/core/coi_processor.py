@@ -206,6 +206,9 @@ class CoiProcessor:
         func_block = int(xref_fblock.split(':')[1])
         
         # Check for calls to this function block.
+        if func_block not in common_objs.function_blocks:
+            output_list.append(chain)
+            return
         xrefs_from = common_objs.function_blocks[func_block]['xref_from']
         
         # If there are no calls to this function block, perhaps it's the 

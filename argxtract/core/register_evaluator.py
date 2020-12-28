@@ -322,9 +322,10 @@ class RegisterEvaluator:
 
             # Debug and trace messages.
             logging.debug('------------------------------------------')
+            logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
             logging.trace('memory: ' + self.print_memory(memory_map))
             logging.debug('reg: ' + self.print_memory(register_object))
-            logging.debug(hex(ins_address) + '  ' + insn.mnemonic + '  ' + insn.op_str)
+            logging.debug('flags: ' + str(condition_flags))
 
             # Branches require special processing.
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
@@ -921,9 +922,10 @@ class RegisterEvaluator:
         if address_object['insn'].id in [ARM_INS_MOV, ARM_INS_MOVW]:
             operands = address_object['insn'].operands
             op1 = operands[0].value.reg
-            op2 = operands[1].value.reg
-            if op1 == op2:
-                return True
+            if operands[1].type == ARM_OP_REG:
+                op2 = operands[1].value.reg
+                if op1 == op2:
+                    return True
         return False
     
     def check_already_traced(self, current_path, calling_address, branch_target):
@@ -1256,13 +1258,14 @@ class RegisterEvaluator:
         for conditional_address in ins_list:
             insn = common_objs.disassembled_firmware[conditional_address]['insn']
             logging.debug('------------------------------------------')
-            logging.debug('memory: ' + self.print_memory(memory_map))
-            logging.debug('reg: ' + self.print_memory(next_reg_values))
             logging.debug(
                 hex(conditional_address) 
                 + '  ' + insn.mnemonic 
                 + '  ' + insn.op_str
             )
+            logging.trace('memory: ' + self.print_memory(memory_map))
+            logging.debug('reg: ' + self.print_memory(next_reg_values))
+            
             opcode_id = insn.id
             if opcode_id in [ARM_INS_B, ARM_INS_BL, ARM_INS_BLX, ARM_INS_BX, 
                                 ARM_INS_CBNZ, ARM_INS_CBZ]:

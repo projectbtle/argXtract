@@ -27,10 +27,11 @@ class StrandExecution:
         self.end_points = []
         self.all_addresses = all_addresses
         self.check_error = True
+        self.stop_on_none = False
         
     def trace_register_values(self, insn_object, start_point, end_points, 
             register_object, memory_map, condition_flags, exec_last=False, 
-            check_error=True):
+            check_error=True, stop_on_none=False):
         logging.debug(  
             'Starting strand trace at '
             + hex(start_point)
@@ -39,6 +40,9 @@ class StrandExecution:
             + ' and '
             + str(register_object)
         )
+        
+        self.stop_on_none = stop_on_none
+        
         start_time = timeit.default_timer()
         self.check_error = check_error
         
@@ -163,6 +167,8 @@ class StrandExecution:
                     ins_address,
                     condition_flags
                 )
+            if condition_flags == None:
+                return (ins_address, memory_map, register_object)
             (ins_address, register_object) = self.update_pc_register(
                 insn_object,
                 ins_address,
@@ -512,9 +518,10 @@ class StrandExecution:
         if address_object['insn'].id in [ARM_INS_MOV, ARM_INS_MOVW]:
             operands = address_object['insn'].operands
             op1 = operands[0].value.reg
-            op2 = operands[1].value.reg
-            if op1 == op2:
-                return True
+            if operands[1].type == ARM_OP_REG:
+                op2 = operands[1].value.reg
+                if op1 == op2:
+                    return True
         return False
 
     #----------------  Table Branch-related ----------------
@@ -1130,6 +1137,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -1138,6 +1146,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if add_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         carry_in = condition_flags['c']
@@ -1186,6 +1195,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None: 
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values,
@@ -1194,6 +1204,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if add_value == None: 
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         (result, carry, overflow) = binops.add_with_carry(start_value, add_value)
@@ -1264,6 +1275,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (and_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -1272,6 +1284,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if and_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         np_dtype = utils.get_numpy_type([start_value, and_value])
@@ -1313,11 +1326,13 @@ class StrandExecution:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         (result, carry) = binops.arithmetic_shift_right(src_value, shift_value)
@@ -1447,6 +1462,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (not_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -1455,6 +1471,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if not_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         np_dtype = utils.get_numpy_type([start_value, not_value])
@@ -1598,6 +1615,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -1606,6 +1624,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if orr_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         np_dtype = utils.get_numpy_type([start_value, orr_value])
@@ -1928,11 +1947,13 @@ class StrandExecution:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         (result, carry) = binops.logical_shift_left(src_value, shift_value)
@@ -1967,11 +1988,13 @@ class StrandExecution:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         (result, carry) = binops.logical_shift_right(src_value, shift_value)
@@ -2003,12 +2026,15 @@ class StrandExecution:
 
         (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
         if value1 == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
         if value2 == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (accumulate, _) = self.get_src_reg_value(next_reg_values, accumulateop, 'int')
         if accumulate == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         value1 = getattr(value1, "tolist", lambda: value1)()
@@ -2047,12 +2073,15 @@ class StrandExecution:
 
         (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
         if value1 == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
         if value2 == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (accumulate, _) = self.get_src_reg_value(next_reg_values, accumulateop, 'int')
         if accumulate == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         value1 = getattr(value1, "tolist", lambda: value1)()
@@ -2116,9 +2145,11 @@ class StrandExecution:
 
         (value1, _) = self.get_src_reg_value(next_reg_values, operand1, 'int')
         if value1 == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (value2, _) = self.get_src_reg_value(next_reg_values, operand2, 'int')
         if value2 == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         value1 = getattr(value1, "tolist", lambda: value1)()
@@ -2158,6 +2189,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if src_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         bit_length = utils.get_bit_length(src_value)
@@ -2202,6 +2234,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2210,6 +2243,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if orr_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         np_dtype = utils.get_numpy_type([start_value, orr_value])
@@ -2260,6 +2294,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (orr_value, carry) = self.get_src_reg_value(
             next_reg_values, 
@@ -2268,6 +2303,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if orr_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         np_dtype = utils.get_numpy_type([start_value, orr_value])
@@ -2477,11 +2513,13 @@ class StrandExecution:
 
         (src_value, carry) = self.get_src_reg_value(next_reg_values, src_operand, 'int')
         if src_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         # Process shift.
         shift_value = self.get_shift_value(next_reg_values, shift_operand)
         if shift_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
             
         (result, carry) = binops.rotate_right(src_value, shift_value)
@@ -2513,6 +2551,7 @@ class StrandExecution:
             'int'
         )
         if src_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         # Process shift.
@@ -2555,6 +2594,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2563,6 +2603,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if add_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         (result, carry, overflow) = \
@@ -2604,6 +2645,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2612,6 +2654,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if add_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
 
         carry_in = condition_flags['c']
@@ -2872,6 +2915,7 @@ class StrandExecution:
             'int'
         )
         if start_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         (add_value, _) = self.get_src_reg_value(
             next_reg_values, 
@@ -2880,6 +2924,7 @@ class StrandExecution:
             condition_flags['c']
         )
         if add_value == None:
+            if self.stop_on_none == True: return (next_reg_values, None)
             return (next_reg_values, condition_flags)
         
         (result, carry, overflow) = \
