@@ -250,11 +250,11 @@ class argxtract:
                 self.per_trace_max_time = args.time_per_trace
         else:
             self.per_trace_max_time = 0
-                
-        if args.max_call_depth:
-            if args.max_call_depth > 0:
+    
+        if args.max_call_depth != None:
+            if args.max_call_depth >= 0:
                 self.max_call_depth = args.max_call_depth
-        
+
         if args.Mode:
             if args.Mode == 'f':
                 self.mode = consts.MODE_FUNCTION
