@@ -53,6 +53,10 @@ class FunctionPatternMatcher:
         self.all_addresses = all_addresses
         
         for pattern_file in pattern_files:
+            logging.debug(
+                'Testing against pattern file '
+                + pattern_file
+            )
             self.load_test_set(pattern_file)
             if self.test_sets == {}:
                 continue
@@ -166,7 +170,7 @@ class FunctionPatternMatcher:
             return True
             
         # We don't analyse functions with very high call depth.
-        if common_objs.function_blocks[function_start]['call_depth'] > 9:
+        if common_objs.function_blocks[function_start]['call_depth'] > 25:
             return True
         
         # Large functions are not supported at present.        
@@ -186,14 +190,21 @@ class FunctionPatternMatcher:
         exits = self.identify_exits(start_address, end_address)
         
         logging.debug('Comparing symbolic execution of function against pattern.')
-        function_exec_object = self.symbolically_execute(start_address, exits)
-        logging.trace(
-            'Function\'s symbolic execution output: '
-            + str(function_exec_object)        
-        )
+
         for test_set in self.test_sets:
+            exec_output_object = self.symbolically_execute_test_set(
+                start_address,
+                exits,
+                self.test_sets[test_set]['input']
+            )
+            logging.trace(
+                'Function\'s symbolic execution output for test set '
+                + str(test_set)
+                + ': '
+                + str(exec_output_object)        
+            )
             pattern_memory_obj = self.test_sets[test_set]['output']['mem']
-            function_memory_obj = function_exec_object[test_set]['mem']
+            function_memory_obj = exec_output_object['mem']
             if self.compare_memory_objects(test_set, pattern_memory_obj, function_memory_obj) == False:
                 logging.trace(
                     'Memory contents don\'t match for test set '
@@ -201,7 +212,7 @@ class FunctionPatternMatcher:
                 )
                 return False
             pattern_register_obj = self.test_sets[test_set]['output']['reg']
-            function_register_obj = function_exec_object[test_set]['reg']
+            function_register_obj = exec_output_object['reg']
             if self.compare_register_objects(pattern_register_obj, function_register_obj) == False:
                 logging.trace(
                     'Register contents don\'t match for test set '
@@ -242,16 +253,6 @@ class FunctionPatternMatcher:
         return exits
         
     #======================= Execution =========================#
-    def symbolically_execute(self, start_address, exits):
-        exec_output_object = {}
-        for test_set in self.test_sets:
-            exec_output_object[test_set] = self.symbolically_execute_test_set(
-                start_address,
-                exits,
-                self.test_sets[test_set]['input']
-            )
-        return exec_output_object
-            
     def symbolically_execute_test_set(self, start_address, exits, test_set_input):
         all_addresses = list(common_objs.disassembled_firmware.keys())
         all_addresses.sort()
@@ -287,7 +288,7 @@ class FunctionPatternMatcher:
                 start_address,
                 exits, 
                 init_regs, memory_map, condition_flags, 
-                False, False)
+                False, False, True)
         output_object = {
             'mem': memory_map,
             'reg': register_object
@@ -347,9 +348,19 @@ class FunctionPatternMatcher:
             else:
                 memory_address = int(pattern_key, 16)
             if memory_address not in function_memory_obj:
+                logging.trace(
+                    'Memory address ' 
+                    + pattern_key 
+                    + ' not present in function execution output.'
+                )
                 return False
             if (pattern_memory_obj[pattern_key] != 
                     function_memory_obj[memory_address]):
+                logging.trace(
+                    'Value at memory address ' 
+                    + pattern_key 
+                    + ' doesn\'t match in function execution output.'
+                )
                 return False
         return True
                 
@@ -384,7 +395,20 @@ class FunctionPatternMatcher:
             
             if register not in function_register_obj:
                 return False
-            if (pattern_register_obj[pattern_key] != 
-                    function_register_obj[register]):
+                
+            expected_values = pattern_register_obj[pattern_key]
+            possible_values = []
+            if "or" in expected_values:
+                split_values = expected_values.split("or")
+                for expected_value in split_values:
+                    possible_values.append(expected_value.strip())
+            else:
+                possible_values.append(expected_values.strip())
+            is_value_present = False
+            for possible_value in possible_values:
+                if (possible_value == function_register_obj[register]):
+                    is_value_present = True
+                
+            if is_value_present == False:
                 return False
         return True
