@@ -1,0 +1,37 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "role": {
+                    "ptr_val": "value",
+                    "length_bits": 8,
+                    "type": "uint8"
+                }
+            }
+        },
+        "1": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "privacy_enabled": {
+                    "ptr_val": "value",
+                    "length_bits": 8,
+                    "type": "uint8"
+                }
+            }
+        },
+        "2": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "device_name_char_len": {
+                    "ptr_val": "value",
+                    "length_bits": 8,
+                    "type": "uint8"
+                }
+            }
+        }
+    }
+}
