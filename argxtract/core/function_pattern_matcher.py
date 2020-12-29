@@ -117,7 +117,6 @@ class FunctionPatternMatcher:
             )
             if is_match == True:
                 matches.append(function)
-                
         if matches == []:
             logging.warning('No pattern matches for ' + pattern_file)
             return None
@@ -334,53 +333,58 @@ class FunctionPatternMatcher:
             return False
         pattern_keys = list(pattern_memory_obj.keys())
         
-        remapped_keys = {}
         for pattern_key in pattern_keys:
-            if pattern_key[0].lower() not in ["0","1","2","3","4","5","6","7",
-                    "8","9","a","b","c","d","e","f"]:
-                (memory_address, remapped_keys) = self.remap_address(
+            if pattern_key.startswith("group"):
+                is_group_present = self.check_for_output_memory_block(
                     test_set,
                     function_memory_obj,
-                    pattern_key,
-                    pattern_memory_obj,
-                    remapped_keys
+                    pattern_memory_obj[pattern_key]
                 )
+                if is_group_present == False:
+                    return False
             else:
-                memory_address = int(pattern_key, 16)
-            if memory_address not in function_memory_obj:
-                logging.trace(
-                    'Memory address ' 
-                    + pattern_key 
-                    + ' not present in function execution output.'
-                )
-                return False
-            if (pattern_memory_obj[pattern_key] != 
-                    function_memory_obj[memory_address]):
-                logging.trace(
-                    'Value at memory address ' 
-                    + pattern_key 
-                    + ' doesn\'t match in function execution output.'
-                )
-                return False
+                if memory_address not in function_memory_obj:
+                    logging.trace(
+                        'Memory address ' 
+                        + pattern_key 
+                        + ' not present in function execution output.'
+                    )
+                    return False
+                if (pattern_memory_obj[pattern_key] != 
+                        function_memory_obj[memory_address]):
+                    logging.trace(
+                        'Value at memory address ' 
+                        + pattern_key 
+                        + ' doesn\'t match in function execution output.'
+                    )
+                    return False
         return True
                 
-    def remap_address(self, test_set, output_memory_object, x_address, 
-            pattern_memory_object, mapping):
+    def check_for_output_memory_block(self, test_set, output_memory_object, 
+            pattern_memory_group):
+        is_present = False
         input_memory_addresses = []
         for key in self.test_sets[test_set]['input']['mem']:
             input_memory_addresses.append(
                 int(key, 16)
             )
-        output_address = None
-        expected_value = pattern_memory_object[x_address]
+        
+        offset_group = {}
+        for key in pattern_memory_group['offset']:
+            int_key = int(key)
+            offset_group[int_key] = pattern_memory_group['offset'][key]
+            
         for address in output_memory_object:
             if address in input_memory_addresses:
                 continue
-            if output_memory_object[address] == expected_value:
-                mapping[x_address] = address
-                output_address = address
-                break
-        return (output_address, mapping)
+            if output_memory_object[address] != offset_group[0]:
+                continue
+            for offset in offset_group:
+                if output_memory_object[address+offset] != offset_group[offset]:
+                    break
+                is_present = True
+            
+        return is_present
     
     def compare_register_objects(self, pattern_register_obj, function_register_obj):
         if function_register_obj == None:

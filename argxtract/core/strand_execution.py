@@ -50,6 +50,7 @@ class StrandExecution:
         code_end = common_objs.code_end_address
         while ins_address <= code_end:
             if ((timeit.default_timer() - start_time) > self.max_time):
+                logging.trace('Timeout')
                 return (ins_address, memory_map, register_object)
                 
             register_object[ARM_REG_PC] = self.get_pc_value(ins_address)

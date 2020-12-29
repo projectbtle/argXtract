@@ -2,11 +2,11 @@
     "args": {
         "0": {
             "in_out": "in",
-            "ptr_val": "pointer",
+            "ptr_val": "value",
             "data": {
                 "keyHandle": {
                     "ptr_val": "value",
-                    "length_bits": 256,
+                    "length_bits": 32,
                     "type": "uint32"
                 }
             }
