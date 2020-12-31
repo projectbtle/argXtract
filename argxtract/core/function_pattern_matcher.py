@@ -343,6 +343,7 @@ class FunctionPatternMatcher:
                 if is_group_present == False:
                     return False
             else:
+                memory_address = int(pattern_key, 16)
                 if memory_address not in function_memory_obj:
                     logging.trace(
                         'Memory address ' 
@@ -380,9 +381,16 @@ class FunctionPatternMatcher:
             if output_memory_object[address] != offset_group[0]:
                 continue
             for offset in offset_group:
-                if output_memory_object[address+offset] != offset_group[offset]:
+                if (address+offset) not in output_memory_object:
+                    is_present = False
                     break
-                is_present = True
+                if output_memory_object[address+offset] != offset_group[offset]:
+                    is_present = False
+                    break
+                else:
+                    is_present = True
+            if is_present == True:
+                break
             
         return is_present
     
