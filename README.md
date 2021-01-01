@@ -1,7 +1,7 @@
 ![banner](docs/banner.png)
 
 # argXtract
-argXtract enables the extraction of arguments to *Calls of Interest* (SVC Calls and function calls (POC)) from stripped IoT binaries. 
+argXtract enables the extraction of arguments to *Calls of Interest* (SVC Calls and function calls) from stripped IoT binaries. 
 
 
 ## Requirements
