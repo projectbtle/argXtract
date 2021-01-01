@@ -568,7 +568,7 @@ class StrandExecution:
         if actual_value == None:
             branch_address = skip_address
         elif actual_value > comp_value:
-            return
+            return (None, None, None, None)
         else:
             branch_address = table_branch_addresses[actual_value]
             
@@ -578,7 +578,7 @@ class StrandExecution:
                 + 'Address: '
                 + hex(branch_address)
             )
-            return
+            return (None, None, None, None)
         
         # Branch, either to address indicated by table, or to 
         #  the skip address.
@@ -595,7 +595,7 @@ class StrandExecution:
             + hex(branch_address)
         )
         
-        return branch_address  
+        return branch_address, next_reg_values, memory_map, condition_flags)
             
     def get_table_branch_addresses(self, ins_address, opcode_id, num_values):
         table_branch_addresses = []
