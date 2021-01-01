@@ -64,6 +64,6 @@ This would then produce the following output:
 ```
 
 ## Need more information?
-Please check out the Wiki. It contains a detailed How-To and also explains the functionality of the tool in greater detail.
+Please check out the [Wiki](https://github.com/projectbtle/argXtract/wiki). It contains a detailed How-To and also explains the functionality of the tool in greater detail.
 
 
