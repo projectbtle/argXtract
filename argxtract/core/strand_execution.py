@@ -595,7 +595,7 @@ class StrandExecution:
             + hex(branch_address)
         )
         
-        return branch_address, next_reg_values, memory_map, condition_flags)
+        return (branch_address, next_reg_values, memory_map, condition_flags)
             
     def get_table_branch_addresses(self, ins_address, opcode_id, num_values):
         table_branch_addresses = []
