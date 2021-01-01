@@ -1,3 +1,5 @@
+[Quick link to Wiki](https://github.com/projectbtle/argXtract/wiki)
+
 ## What is `argXtract`?
 argXtract is a tool for extracting arguments to API calls (SVC calls and function calls) from within stripped IoT binaries (more specifically, ARM Cortex-M binaries). 
 
