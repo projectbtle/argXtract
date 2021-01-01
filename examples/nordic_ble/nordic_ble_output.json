@@ -1,0 +1,483 @@
+{
+    "filepath": "examples/nordic_ble/nordic_ble.bin",
+    "metadata": {
+        "app_vector_table_size": "0xc0",
+        "is_pre_sdk13": true,
+        "embedded_softdevice": false,
+        "app_code_base": "0x18000",
+        "softdevice_version": "s110",
+        "sdk_version": "9.0.0_2e23562",
+        "soc_family": "nrf51",
+        "is_estimated_data": true
+    },
+    "output": {
+        "sd_ble_gap_device_name_set": [
+            {
+                "p_write_perm": {
+                    "security_level": 1,
+                    "security_mode": 1
+                },
+                "p_dev_name": "4e6f726469635f48524d000041030000002070470020704700207047f8b506",
+                "len": 10
+            }
+        ],
+        "sd_ble_gatts_service_add": [
+            {
+                "type": 1,
+                "p_uuid": {
+                    "uuid": "180d",
+                    "type": 1
+                },
+                "p_handle": "8c16"
+            },
+            {
+                "type": 1,
+                "p_uuid": {
+                    "uuid": "180a",
+                    "type": 1
+                },
+                "p_handle": "acf0"
+            },
+            {
+                "type": 1,
+                "p_uuid": {
+                    "uuid": "f00d",
+                    "type": 1
+                },
+                "p_handle": "5363"
+            }
+        ],
+        "sd_ble_gatts_characteristic_add": [
+            {
+                "service_handle": "8c16",
+                "p_char_md": {
+                    "char_props": {
+                        "ignore": 0,
+                        "auth_signed_wr": 0,
+                        "indicate": 0,
+                        "notify": 1,
+                        "write": 0,
+                        "write_wo_resp": 0,
+                        "read": 0,
+                        "broadcast": 0
+                    },
+                    "char_ext_props": {
+                        "wr_aux": 0,
+                        "reliable_wr": 0
+                    },
+                    "p_char_user_desc": 0,
+                    "char_user_desc_max_size": 0,
+                    "char_user_desc_size": 0,
+                    "p_char_pf": {
+                        "format": 0,
+                        "exponent": 0,
+                        "unit": 0,
+                        "name_space": 0,
+                        "desc": 0
+                    },
+                    "p_user_desc_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    },
+                    "p_cccd_md": {
+                        "read_perm": {
+                            "security_level": 1,
+                            "security_mode": 1
+                        },
+                        "write_perm": {
+                            "security_level": 1,
+                            "security_mode": 1
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 1,
+                        "vlen": 0
+                    },
+                    "p_sccd_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    }
+                },
+                "p_attr_char_value": {
+                    "p_uuid": {
+                        "uuid": "2a37",
+                        "type": 1
+                    },
+                    "p_attr_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 1,
+                        "vlen": 1
+                    },
+                    "init_len": 2,
+                    "init_offs": 0,
+                    "max_len": 20,
+                    "p_value": "0400"
+                },
+                "value_handle": "1df1",
+                "user_desc_handle": "1e2a",
+                "cccd_handle": "4a19",
+                "sccd_handle": "107f"
+            },
+            {
+                "service_handle": "8c16",
+                "p_char_md": {
+                    "char_props": {
+                        "ignore": 0,
+                        "auth_signed_wr": 0,
+                        "indicate": 0,
+                        "notify": 0,
+                        "write": 0,
+                        "write_wo_resp": 0,
+                        "read": 1,
+                        "broadcast": 0
+                    },
+                    "char_ext_props": {
+                        "wr_aux": 0,
+                        "reliable_wr": 0
+                    },
+                    "p_char_user_desc": 0,
+                    "char_user_desc_max_size": 0,
+                    "char_user_desc_size": 0,
+                    "p_char_pf": {
+                        "format": 0,
+                        "exponent": 0,
+                        "unit": 0,
+                        "name_space": 0,
+                        "desc": 0
+                    },
+                    "p_user_desc_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    },
+                    "p_cccd_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    },
+                    "p_sccd_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    }
+                },
+                "p_attr_char_value": {
+                    "p_uuid": {
+                        "uuid": "2a38",
+                        "type": 1
+                    },
+                    "p_attr_md": {
+                        "read_perm": {
+                            "security_level": 1,
+                            "security_mode": 1
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 1,
+                        "vlen": 0
+                    },
+                    "init_len": 1,
+                    "init_offs": 0,
+                    "max_len": 1,
+                    "p_value": "03"
+                },
+                "value_handle": "5cd8",
+                "user_desc_handle": "3839",
+                "cccd_handle": "2397",
+                "sccd_handle": "53c7"
+            },
+            {
+                "service_handle": "acf0",
+                "p_char_md": {
+                    "char_props": {
+                        "ignore": 0,
+                        "auth_signed_wr": 0,
+                        "indicate": 0,
+                        "notify": 0,
+                        "write": 0,
+                        "write_wo_resp": 0,
+                        "read": 1,
+                        "broadcast": 0
+                    },
+                    "char_ext_props": {
+                        "wr_aux": 0,
+                        "reliable_wr": 0
+                    },
+                    "p_char_user_desc": 0,
+                    "char_user_desc_max_size": 0,
+                    "char_user_desc_size": 0,
+                    "p_char_pf": {
+                        "format": 0,
+                        "exponent": 0,
+                        "unit": 0,
+                        "name_space": 0,
+                        "desc": 0
+                    },
+                    "p_user_desc_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    },
+                    "p_cccd_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    },
+                    "p_sccd_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    }
+                },
+                "p_attr_char_value": {
+                    "p_uuid": {
+                        "uuid": "2a29",
+                        "type": 1
+                    },
+                    "p_attr_md": {
+                        "read_perm": {
+                            "security_level": 1,
+                            "security_mode": 1
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 1,
+                        "vlen": 0
+                    },
+                    "init_len": 19,
+                    "init_offs": 0,
+                    "max_len": 19,
+                    "p_value": "4e6f7264696353656d69636f6e647563746f72"
+                },
+                "value_handle": "94ed",
+                "user_desc_handle": "e32e",
+                "cccd_handle": "ad91",
+                "sccd_handle": "3c2a"
+            },
+            {
+                "service_handle": "5363",
+                "p_char_md": {
+                    "char_props": {
+                        "ignore": 0,
+                        "auth_signed_wr": 0,
+                        "indicate": 0,
+                        "notify": 1,
+                        "write": 1,
+                        "write_wo_resp": 0,
+                        "read": 1,
+                        "broadcast": 0
+                    },
+                    "char_ext_props": {
+                        "wr_aux": 0,
+                        "reliable_wr": 0
+                    },
+                    "p_char_user_desc": 0,
+                    "char_user_desc_max_size": 0,
+                    "char_user_desc_size": 0,
+                    "p_char_pf": {
+                        "format": 0,
+                        "exponent": 0,
+                        "unit": 0,
+                        "name_space": 0,
+                        "desc": 0
+                    },
+                    "p_user_desc_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    },
+                    "p_cccd_md": {
+                        "read_perm": {
+                            "security_level": 1,
+                            "security_mode": 1
+                        },
+                        "write_perm": {
+                            "security_level": 2,
+                            "security_mode": 1
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 1,
+                        "vlen": 0
+                    },
+                    "p_sccd_md": {
+                        "read_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "write_perm": {
+                            "security_level": 0,
+                            "security_mode": 0
+                        },
+                        "ignore": 0,
+                        "wr_auth": 0,
+                        "rd_auth": 0,
+                        "vloc": 0,
+                        "vlen": 0
+                    }
+                },
+                "p_attr_char_value": {
+                    "p_uuid": {
+                        "uuid": "beea",
+                        "type": 1
+                    },
+                    "p_attr_md": {
+                        "read_perm": {
+                            "security_level": 3,
+                            "security_mode": 1
+                        },
+                        "write_perm": {
+                            "security_level": 3,
+                            "security_mode": 1
+                        },
+                        "ignore": 0,
+                        "wr_auth": 1,
+                        "rd_auth": 0,
+                        "vloc": 1,
+                        "vlen": 0
+                    },
+                    "init_len": 4,
+                    "init_offs": 0,
+                    "max_len": 4,
+                    "p_value": "12345678"
+                },
+                "value_handle": "ef1e",
+                "user_desc_handle": "587e",
+                "cccd_handle": "c325",
+                "sccd_handle": "a511"
+            }
+        ],
+        "sd_ble_uuid_vs_add": [
+            {
+                "p_vs_uuid": "000000001212efde1523785fef13d123",
+                "p_uuid": "f00d"
+            },
+            {
+                "p_vs_uuid": "000000001212efde1523785fef13d123",
+                "p_uuid": "beea"
+            }
+        ]
+    },
+    "cois": [
+        "sd_ble_gap_device_name_set",
+        "sd_ble_gatts_characteristic_add",
+        "sd_ble_gatts_service_add",
+        "sd_ble_uuid_vs_add"
+    ],
+    "unhandled": "",
+    "analysis_time": 19.2950197
+}

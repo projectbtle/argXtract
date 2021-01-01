@@ -1,0 +1,39 @@
+{
+    "filepath": "examples/nordic_ant/nordic_ant.bin",
+    "metadata": {
+        "embedded_softdevice": false,
+        "app_code_base": "0x12000"
+    },
+    "output": {
+        "sd_ant_enable": [
+            {
+                "pstChannelEnable": {
+                    "ucTotalNumberOfChannels": 15,
+                    "ucNumberOfEncryptedChannels": 15,
+                    "usNumberOfEvents": 32,
+                    "pucMemoryBlockStartLocation": 0,
+                    "usMemoryBlockByteSize": 2163
+                }
+            }
+        ],
+        "sd_ant_crypto_key_set": [
+            {
+                "ucKeyNum": 0,
+                "aucKey": "01040103060209050805030503090709"
+            }
+        ],
+        "sd_ant_crypto_info_set": [
+            {
+                "ucType": 0,
+                "aucInfo": "0000000000000000000000000000000000000000000000"
+            }
+        ]
+    },
+    "cois": [
+        "sd_ant_crypto_info_set",
+        "sd_ant_crypto_key_set",
+        "sd_ant_enable"
+    ],
+    "unhandled": "",
+    "analysis_time": 19.2711042
+}

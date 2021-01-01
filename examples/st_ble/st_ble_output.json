@@ -1,0 +1,20 @@
+{
+    "filepath": "examples/st_ble/st_ble.bin",
+    "metadata": {
+        "app_code_base": "0x10040000"
+    },
+    "output": {
+        "aci_gap_init": [
+            {
+                "role": 1,
+                "privacy_enabled": 2,
+                "device_name_char_len": 8
+            }
+        ]
+    },
+    "cois": [
+        "aci_gap_init"
+    ],
+    "unhandled": "",
+    "analysis_time": 439.52319300000005
+}

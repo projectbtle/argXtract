@@ -1,0 +1,15 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "data": {
+                "io": {
+                    "ptr_val": "value",
+                    "length_bits": 8,
+                    "type": "uint8"
+                }
+            }
+        }
+    }
+}
