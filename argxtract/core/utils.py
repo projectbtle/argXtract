@@ -24,7 +24,7 @@ def id_function_block_for_instruction(ins_address):
 
     index_of_closest = function_block_starts.index(closest)
     # Make sure we don't loop backwards to end.
-    minimum_possible_address = common_objs.code_start_address
+    minimum_possible_address = function_block_starts[0]
     if ((index_of_closest - 1) < 0):
         block_start = minimum_possible_address
     else:

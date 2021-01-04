@@ -2895,7 +2895,10 @@ class RegisterEvaluator:
         accumulate = getattr(accumulate, "tolist", lambda: accumulate)()
         mul_value = value1 * value2
         mul_value = accumulate - mul_value 
-        mul_value = np.int32(mul_value)
+        if mul_value > 2147483647:
+            mul_value = np.uint32(mul_value)
+        else:
+            mul_value = np.int32(mul_value)
         mul_value = '{0:08x}'.format(mul_value)
         mul_value = mul_value.zfill(8)
         result = mul_value[-8:]
@@ -3704,7 +3707,10 @@ class RegisterEvaluator:
             value = 0
         else:
             value = numerator//denominator
-        value = np.int32(value)
+        if value > 2147483647:
+            value = np.uint32(value)
+        else:
+            value = np.int32(value)
         value = '{0:08x}'.format(value)
         
         next_reg_values = self.store_register_bytes(
