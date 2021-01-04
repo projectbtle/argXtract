@@ -1228,19 +1228,6 @@ class FirmwareDisassembler:
         ldr_target = curr_pc_value + operands[1].mem.disp
         if insn.id == ARM_INS_ADR:
             ldr_target = curr_pc_value + operands[1].value.imm
-        else:
-            if (abs(ldr_target-ins_address) > 4096):
-                if ins_address not in common_objs.errored_instructions:
-                    common_objs.errored_instructions.append(ins_address)
-                    logging.trace(
-                        'LDR target ('
-                        + hex(ldr_target)
-                        + ') is at an offset greater than 4096 '
-                        + 'for LDR call at '
-                        + hex(ins_address)
-                        + '. Adding to errored instructions.'
-                    )
-                return ins_address
                     
         outcome = self.process_data_addresses(ins_address, ldr_target, insn.id)
         if outcome == consts.ERROR_INVALID_INSTRUCTION:
@@ -1716,7 +1703,7 @@ class FirmwareDisassembler:
         # If it's not PC-relative address, return false.
         if operands[1].value.reg != ARM_REG_PC:
             return False
-            
+        
         return True
             
     def get_ldr_target_data_bytes(self, ldr_target, num_bytes):
