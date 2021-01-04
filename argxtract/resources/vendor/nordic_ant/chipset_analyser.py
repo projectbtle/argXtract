@@ -131,6 +131,9 @@ class VendorChipsetAnalyser:
         # TODO: Implement
         pass
         
+    def get_svc_num(self):
+        return
+        
     def get_svc_set(self):
         self.vendor_svc_set = {
                     "sd_ant_stack_reset": "0xC0",
