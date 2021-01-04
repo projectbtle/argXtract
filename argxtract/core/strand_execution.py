@@ -766,6 +766,8 @@ class StrandExecution:
                         conditional_address,
                         condition_flags
                     )
+                if condition_flags == None:
+                    return None
         
         if len(ins_list) > 0:
             start_branch = ins_list[-1]
@@ -3295,6 +3297,8 @@ class StrandExecution:
         value = None
         if address in registers:
             value = registers[address]
+        else:
+            return value
             
         # Type conversion
         value = utils.convert_type(value, dtype)

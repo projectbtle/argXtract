@@ -55,7 +55,10 @@ def sort_dict_keys(dictionary):
 def convert_type(value, dtype, byte_length='default', signed=None):
     if dtype == 'int':
         if type(value) is int:
-            value = value
+            if value > 2147483647:
+                value = np.uint32(value)
+            else:
+                value = np.int32(value)
         elif type(value) is str:
             length = len(value)
             value = int(value, 16)
@@ -178,8 +181,14 @@ def get_binary_representation(value, length):
     
 def convert_bits_to_type(bitstring, dtype):
     if ((dtype is str) or (dtype == 'hex')):
-        hex_value = '%0*x' % ((len(bitstring) + 3) // 4, int(bitstring, 2))
-        new_value = hex_value
+        integer_value = int(bitstring, 2)
+        bit_length = len(bitstring)
+        mult = 0xFFFFFFFF
+        if bit_length == 8:
+            mult = 0xFF
+        elif bit_length == 16:
+            mult = 0xFFFF
+        new_value = (~integer_value & mult)
     else:
         python_int = int(bitstring, 2)
         if dtype == np.int8:

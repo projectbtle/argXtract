@@ -4357,6 +4357,8 @@ class RegisterEvaluator:
         value = None
         if address in registers:
             value = registers[address]
+        else:
+            return value
             
         # Type conversion
         value = utils.convert_type(value, dtype)
