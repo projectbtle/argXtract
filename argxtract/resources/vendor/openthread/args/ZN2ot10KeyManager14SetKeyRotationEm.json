@@ -1,0 +1,16 @@
+{
+    "args": {
+        "0": {
+            "in_out": "in",
+            "ptr_val": "value",
+            "length": 32,
+            "data": {
+                "aKeyRotation": {
+                    "ptr_val": "value",
+                    "length_bits": 256,
+                    "type": "uint32"
+                }
+            }
+        }
+    }
+}
