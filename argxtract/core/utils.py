@@ -55,7 +55,7 @@ def sort_dict_keys(dictionary):
 def convert_type(value, dtype, byte_length='default', signed=None):
     if dtype == 'int':
         if type(value) is int:
-            if value > 2147483647:
+            if abs(value) > 2147483647:
                 value = np.uint32(value)
             else:
                 value = np.int32(value)
@@ -68,7 +68,7 @@ def convert_type(value, dtype, byte_length='default', signed=None):
                 elif signed == False:
                     np.uint8(value)
                 else:
-                    if value > 127:
+                    if abs(value) > 127:
                         value = np.uint8(value)
                     else:
                         value = np.int8(value)
@@ -78,7 +78,7 @@ def convert_type(value, dtype, byte_length='default', signed=None):
                 elif signed == False:
                     value = np.uint16(value)
                 else:
-                    if value > 32767:
+                    if abs(value) > 32767:
                         value = np.uint16(value)
                     else:
                         value = np.int16(value)
@@ -88,7 +88,7 @@ def convert_type(value, dtype, byte_length='default', signed=None):
                 elif signed == False:
                     value = np.uint32(value)
                 else:
-                    if value > 2147483647:
+                    if abs(value) > 2147483647:
                         value = np.uint32(value)
                     else:
                         value = np.int32(value)
