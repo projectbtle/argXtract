@@ -147,6 +147,7 @@ class FunctionPatternMatcher:
             end_address
         )
         if has_unsupported_operations == True:
+            logging.trace('Unsupported function.')
             return False
   
         is_match = self.analyse_function(
@@ -169,7 +170,7 @@ class FunctionPatternMatcher:
             return True
             
         # We don't analyse functions with very high call depth.
-        if common_objs.function_blocks[function_start]['call_depth'] > 25:
+        if common_objs.function_blocks[function_start]['call_depth'] > 30:
             return True
         
         # Large functions are not supported at present.        

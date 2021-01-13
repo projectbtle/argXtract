@@ -181,46 +181,29 @@ def get_binary_representation(value, length):
     
 def convert_bits_to_type(bitstring, dtype):
     if ((dtype is str) or (dtype == 'hex')):
-        integer_value = int(bitstring, 2)
-        bit_length = len(bitstring)
-        mult = 0xFFFFFFFF
-        if bit_length == 8:
-            mult = 0xFF
-        elif bit_length == 16:
-            mult = 0xFFFF
-        new_value = (~integer_value & mult)
+        new_value = '%0*x' % ((len(bitstring) + 3) // 4, int(bitstring, 2))
     else:
-        python_int = int(bitstring, 2)
         if dtype == np.int8:
             try:
                 decimal_value = np.int8(int(bitstring, 2))
             except:
                 decimal_value = np.uint8(int(bitstring, 2))
         elif dtype == np.uint8:
-            if python_int < 0:
-                decimal_value = np.int8(int(bitstring, 2))
-            else:
-                decimal_value = np.uint8(int(bitstring, 2))
+            decimal_value = np.uint8(int(bitstring, 2))
         elif dtype == np.int16:
             try:
                 decimal_value = np.int16(int(bitstring, 2))
             except:
                 decimal_value = np.uint16(int(bitstring, 2))
         elif dtype == np.uint16:
-            if python_int < 0:
-                decimal_value = np.int16(int(bitstring, 2))
-            else:
-                decimal_value = np.uint16(int(bitstring, 2))
+            decimal_value = np.uint16(int(bitstring, 2))
         elif dtype == np.int32:
             try:
                 decimal_value = np.int32(int(bitstring, 2))
             except:
                 decimal_value = np.uint32(int(bitstring, 2))
         elif dtype == np.uint32:
-            if python_int < 0:
-                decimal_value = np.int32(int(bitstring, 2))
-            else:
-                decimal_value = np.uint32(int(bitstring, 2))
+            decimal_value = np.uint32(int(bitstring, 2))
         new_value = decimal_value.astype(dtype)
     return new_value
     
