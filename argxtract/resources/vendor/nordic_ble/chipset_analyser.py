@@ -41,6 +41,7 @@ class VendorChipsetAnalyser:
             self.check_for_embedded_softdevice()
         
         if self.embedded_softdevice != True:
+            logging.debug('No embedded softdevice.')
             # Make sure firmware is Nordic.
             is_nordic = self.test_nordic()
             if is_nordic == False:
@@ -97,15 +98,7 @@ class VendorChipsetAnalyser:
     def test_nordic(self):
         if self.embedded_softdevice == True:
             return True
-        if common_objs.vector_table_size == 0xC0:
-            self.pre_sdk13 = True
-            debug_msg = 'Vector table size matches sdk <13'
-            logging.info(debug_msg)
-            return True
-        elif common_objs.vector_table_size == 0x0200:
-            self.pre_sdk13 = False
-            debug_msg = 'Vector table size matches sdk >=13'
-            logging.info(debug_msg)
+        if common_objs.vector_table_size in [0xC0, 0x200, 0x400]:
             return True
         else:
             return False
@@ -259,26 +252,14 @@ class VendorChipsetAnalyser:
                 cleaned_version = cleaned_version.split('_')[0]
                 cleaned_version = cleaned_version.split('.')[0]
                 sdk_version = float(cleaned_version)
-                if self.pre_sdk13 == True:
-                    if sdk_version < 13:
-                        if sdk not in sdk_candidates:
-                            sdk_candidates[sdk] = []
-                        if potential_softdevice not in sdk_candidates[sdk]:
-                            sdk_candidates[sdk].append(potential_softdevice)
-                        if potential_softdevice not in candidates:
-                            candidates[potential_softdevice] = []
-                        if sdk not in candidates[potential_softdevice]:
-                            candidates[potential_softdevice].append(sdk)
-                elif self.pre_sdk13 == False:
-                    if sdk_version >= 13:
-                        if sdk not in sdk_candidates:
-                            sdk_candidates[sdk] = []
-                        if potential_softdevice not in sdk_candidates[sdk]:
-                            sdk_candidates[sdk].append(potential_softdevice)
-                        if potential_softdevice not in candidates:
-                            candidates[potential_softdevice] = []
-                        if sdk not in candidates[potential_softdevice]:
-                            candidates[potential_softdevice].append(sdk)
+                if sdk not in sdk_candidates:
+                    sdk_candidates[sdk] = []
+                if potential_softdevice not in sdk_candidates[sdk]:
+                    sdk_candidates[sdk].append(potential_softdevice)
+                if potential_softdevice not in candidates:
+                    candidates[potential_softdevice] = []
+                if sdk not in candidates[potential_softdevice]:
+                    candidates[potential_softdevice].append(sdk)
         list_candidates = list(candidates.keys())
         list_sdk_candidates = list(sdk_candidates.keys())
         if len(list_candidates) != 1:
@@ -441,12 +422,6 @@ class VendorChipsetAnalyser:
         for sdk in nordic_consts.NORDIC_SVC_NUMS:
             # If incorrect SDK version, continue.
             sdk_version = float(sdk.split('.')[0])
-            if self.pre_sdk13 == True:
-                if sdk_version >= 13:
-                    continue
-            elif self.pre_sdk13 == False:
-                if sdk_version < 13:
-                    continue
                     
             # If incorrect softdevice version, continue.
             for sd in nordic_consts.NORDIC_SVC_NUMS[sdk]:
@@ -474,7 +449,6 @@ class VendorChipsetAnalyser:
     def generate_output_metadata(self):
         metadata = {
             'app_vector_table_size': hex(common_objs.vector_table_size),
-            'is_pre_sdk13': self.pre_sdk13,
             'embedded_softdevice': self.embedded_softdevice,
             'app_code_base': hex(common_objs.app_code_base),
             'softdevice_version': self.softdevice_version,

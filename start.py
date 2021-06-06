@@ -170,8 +170,6 @@ class argxtract:
                 sys.exit(0)
             for root, dir, fw_files in os.walk(fw_directory):
                 for fw_file in fw_files:
-                    if (not (fw_file.endswith('.bin'))):
-                        continue
                     filepath = os.path.join(root, fw_file)
                     if (not(os.path.isfile(filepath))):
                         logging.error(
@@ -193,8 +191,6 @@ class argxtract:
             with open(filelist) as f:
                 fw_files = f.read().splitlines()
             for fw_file in fw_files:
-                if (not (fw_file.endswith('.bin'))):
-                    continue
                 if (not(os.path.isfile(fw_file))):
                     logging.error(
                         'File does not exist: '
@@ -205,12 +201,6 @@ class argxtract:
                     self.core_file_list.append(fw_file)
         elif args.file:
             filepath = args.file
-            if (not (filepath.endswith('.bin'))):
-                logging.critical(
-                    'Not a bin file '
-                    + filepath
-                )
-                sys.exit(0)
             if (not(os.path.isfile(args.file))):
                 logging.critical(
                     'Firmware file does not exist! '
