@@ -241,9 +241,12 @@ class FirmwareDisassembler:
                     + self_targeting_branch
                 )
                 current_app_code_base = 0
-                if (self_targeting_branch.replace('0x', ''))[num_hex:] == interrupt_handler[num_hex:]:
-                    current_app_code_base = \
-                        int(interrupt_handler, 16) - int(self_targeting_branch, 16)
+                branch_base = (self_targeting_branch.replace('0x', ''))[num_hex:]
+                handler_base = interrupt_handler[num_hex:]
+                if branch_base != handler_base:
+                    continue
+                current_app_code_base = \
+                    int(interrupt_handler, 16) - int(self_targeting_branch, 16)
                 if current_app_code_base < 0: continue
                 # The range of values must include the Reset Handler.
                 min_range = current_app_code_base
