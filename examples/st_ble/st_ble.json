@@ -1,7 +1,8 @@
 {
     "filepath": "examples/st_ble/st_ble.bin",
     "metadata": {
-        "app_code_base": "0x10040000"
+        "app_code_base": "0x10040000",
+        "app_vector_table_size": "0xc0"
     },
     "output": {
         "aci_gap_init": [
@@ -16,5 +17,5 @@
         "aci_gap_init"
     ],
     "unhandled": "",
-    "analysis_time": 11130.8814136
+    "analysis_time": 10342.2341271
 }
