@@ -1,13 +1,9 @@
 {
     "filepath": "examples/nordic_ble/nordic_ble_address.bin",
     "metadata": {
-        "app_vector_table_size": "0xc0",
         "embedded_softdevice": false,
         "app_code_base": "0x1b000",
-        "softdevice_version": "s130",
-        "sdk_version": "12.3.0_d7731ad",
-        "soc_family": "nrf51",
-        "is_estimated_data": true
+        "app_vector_table_size": "0xc0"
     },
     "output": {
         "sd_ble_gap_address_set": [
@@ -24,5 +20,5 @@
         "sd_ble_gap_address_set"
     ],
     "unhandled": "",
-    "analysis_time": 40.5905589
+    "analysis_time": 44.7652941
 }

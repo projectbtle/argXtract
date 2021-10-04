@@ -448,13 +448,7 @@ class VendorChipsetAnalyser:
     # ==============================================================
     def generate_output_metadata(self):
         metadata = {
-            'app_vector_table_size': hex(common_objs.vector_table_size),
-            'embedded_softdevice': self.embedded_softdevice,
-            'app_code_base': hex(common_objs.app_code_base),
-            'softdevice_version': self.softdevice_version,
-            'sdk_version': self.sdk_version,
-            'soc_family': self.soc_family,
-            'is_estimated_data': self.estimated
+            'embedded_softdevice': self.embedded_softdevice
         }
         return metadata
         

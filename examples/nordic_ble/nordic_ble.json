@@ -1,14 +1,9 @@
 {
     "filepath": "examples/nordic_ble/nordic_ble.bin",
     "metadata": {
-        "app_vector_table_size": "0xc0",
-        "is_pre_sdk13": true,
         "embedded_softdevice": false,
         "app_code_base": "0x18000",
-        "softdevice_version": "s110",
-        "sdk_version": "9.0.0_2e23562",
-        "soc_family": "nrf51",
-        "is_estimated_data": true
+        "app_vector_table_size": "0xc0"
     },
     "output": {
         "sd_ble_gap_device_name_set": [
@@ -28,7 +23,7 @@
                     "uuid": "180d",
                     "type": 1
                 },
-                "p_handle": "8c16"
+                "p_handle": "7d9d"
             },
             {
                 "type": 1,
@@ -36,7 +31,7 @@
                     "uuid": "180a",
                     "type": 1
                 },
-                "p_handle": "acf0"
+                "p_handle": "e6c6"
             },
             {
                 "type": 1,
@@ -44,12 +39,12 @@
                     "uuid": "f00d",
                     "type": 1
                 },
-                "p_handle": "5363"
+                "p_handle": "5232"
             }
         ],
         "sd_ble_gatts_characteristic_add": [
             {
-                "service_handle": "8c16",
+                "service_handle": "7d9d",
                 "p_char_md": {
                     "char_props": {
                         "ignore": 0,
@@ -146,13 +141,13 @@
                     "max_len": 20,
                     "p_value": "0400"
                 },
-                "value_handle": "1df1",
-                "user_desc_handle": "1e2a",
-                "cccd_handle": "4a19",
-                "sccd_handle": "107f"
+                "value_handle": "5847",
+                "user_desc_handle": "119f",
+                "cccd_handle": "c4f9",
+                "sccd_handle": "82a7"
             },
             {
-                "service_handle": "8c16",
+                "service_handle": "7d9d",
                 "p_char_md": {
                     "char_props": {
                         "ignore": 0,
@@ -249,13 +244,13 @@
                     "max_len": 1,
                     "p_value": "03"
                 },
-                "value_handle": "5cd8",
-                "user_desc_handle": "3839",
-                "cccd_handle": "2397",
-                "sccd_handle": "53c7"
+                "value_handle": "559b",
+                "user_desc_handle": "2d6b",
+                "cccd_handle": "5372",
+                "sccd_handle": "0a31"
             },
             {
-                "service_handle": "acf0",
+                "service_handle": "e6c6",
                 "p_char_md": {
                     "char_props": {
                         "ignore": 0,
@@ -352,13 +347,13 @@
                     "max_len": 19,
                     "p_value": "4e6f7264696353656d69636f6e647563746f72"
                 },
-                "value_handle": "94ed",
-                "user_desc_handle": "e32e",
-                "cccd_handle": "ad91",
-                "sccd_handle": "3c2a"
+                "value_handle": "2819",
+                "user_desc_handle": "17e3",
+                "cccd_handle": "4f83",
+                "sccd_handle": "df24"
             },
             {
-                "service_handle": "5363",
+                "service_handle": "5232",
                 "p_char_md": {
                     "char_props": {
                         "ignore": 0,
@@ -455,10 +450,10 @@
                     "max_len": 4,
                     "p_value": "12345678"
                 },
-                "value_handle": "ef1e",
-                "user_desc_handle": "587e",
-                "cccd_handle": "c325",
-                "sccd_handle": "a511"
+                "value_handle": "387e",
+                "user_desc_handle": "effd",
+                "cccd_handle": "0a08",
+                "sccd_handle": "480b"
             }
         ],
         "sd_ble_uuid_vs_add": [
@@ -479,5 +474,5 @@
         "sd_ble_uuid_vs_add"
     ],
     "unhandled": "",
-    "analysis_time": 19.2950197
+    "analysis_time": 15.6039036
 }

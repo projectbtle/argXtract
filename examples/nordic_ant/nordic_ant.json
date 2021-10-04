@@ -2,7 +2,8 @@
     "filepath": "examples/nordic_ant/nordic_ant.bin",
     "metadata": {
         "embedded_softdevice": false,
-        "app_code_base": "0x12000"
+        "app_code_base": "0x12000",
+        "app_vector_table_size": "0x200"
     },
     "output": {
         "sd_ant_enable": [
@@ -35,5 +36,5 @@
         "sd_ant_enable"
     ],
     "unhandled": "",
-    "analysis_time": 19.2711042
+    "analysis_time": 14.9643055
 }

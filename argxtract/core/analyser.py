@@ -213,11 +213,11 @@ class FirmwareAnalyser:
         final_output['filepath'] = common_paths.path_to_fw
         # Add chipset-specific metadata.
         chipset_metadata = self.chipset_analyser.generate_output_metadata()
-        if ((chipset_metadata != {}) and (chipset_metadata != None)):
-            final_output['metadata'] = chipset_metadata
-        if 'metadata' not in final_output:
-            final_output['metadata'] = {}
+        if chipset_metadata == None:
+            chipset_metadata = {}
+        final_output['metadata'] = chipset_metadata
         final_output['metadata']['app_code_base'] = hex(common_objs.app_code_base)
+        final_output['metadata']['app_vector_table_size'] = hex(common_objs.vector_table_size)
         if output_object == {}:
             return final_output
         # Add output object.
