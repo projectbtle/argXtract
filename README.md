@@ -11,7 +11,7 @@
 argXtract is a tool for extracting arguments to API calls (SVC calls and function calls) from within stripped IoT binaries (more specifically, ARM Cortex-M binaries). 
 
 ## Why would I want to extract arguments to API calls?
-The configuration of an IoT device is very important from a security perspective. Many IoT devices operate on what we term a _split-firmware_ model, where a technology stack (such as Bluetooth Low Energy or Thread) is implemented by a vendor and the developer builds an application on top of it. In such cases, most of the configurations will be made via APIs provided by the vendor. For example, APIs may be provided to define access permissions, passwords, etc. Developers may also use libraries to perform additional configurations. By extracting the arguments to these configuration APIs, we can find out how secure a device is.
+The configuration of an IoT device is very important from a security perspective. Many IoT devices operate on what we term a _split-firmware_ model, where a technology stack (such as Bluetooth Low Energy or Thread) is implemented by a vendor and the developer builds an application on top of it. In such cases, most of the configurations will be made via APIs provided by the vendor. For example, APIs may be provided to define access permissions, passwords, etc. Developers may also use libraries to perform additional configurations. By extracting the arguments to these configuration APIs, we can get an idea of some aspects of security for the device.
 
 ## How do I use `argXtract`?
 To extract arguments from an API call, you need to provide details of the API call to `argXtract`. In particular, `argXtract` needs to know how to _find_ the API call within a stripped binary and how the arguments to the API call are _formatted_. For the former, you need to provide _function pattern files_ or details about supervisor calls. For the latter, you need to define _argument definition files_. We've provided a collection of function pattern files and argument definition files to start with. For details on how to define your own, head over to our [Wiki](https://github.com/projectbtle/argXtract/wiki).
@@ -114,7 +114,7 @@ This would then produce the following output:
 *Note: `0x313233343536` is hex for "123456", which is the string we provided as the fixed passkey.*
 
 ## Need more information?
-Please check out the [Wiki](https://github.com/projectbtle/argXtract/wiki). It contains a detailed How-To and also explains the functionality of the tool in greater detail.
+Please check out the [Wiki](https://github.com/projectbtle/argXtract/wiki). It contains a detailed How-To and also explains the functionality of the tool in greater detail. Our [ACSAC '21 paper](https://dl.acm.org/doi/abs/10.1145/3485832.3488007) explains the issues that prompted the development of argXtract, and documents comparisons performed between argXtract and other popular RE tools (author copy [here](https://pure.royalholloway.ac.uk/portal/files/43253473/Deriving_IoT_Security_Configurations_via_Automated_Static_Analysis_of_Stripped_ARM_Binaries.pdf)).
 
 ## Want to help out?
 If you happen to have real-world Cortex-M binaries *with* headers (so that we can obtain accurate disassembly) that you're happy to share with us, please let us know. Ground truth is something we're lacking right now (so far, we're generating our own test files using different technologies and compilers, but real-world examples would be so much better). Please note, you must have the right to share the binaries! 
