@@ -114,7 +114,7 @@ This would then produce the following output:
 *Note: `0x313233343536` is hex for "123456", which is the string we provided as the fixed passkey.*
 
 ## Need more information?
-Please check out the [Wiki](https://github.com/projectbtle/argXtract/wiki). It contains a detailed How-To and also explains the functionality of the tool in greater detail. Our [ACSAC '21 paper](https://dl.acm.org/doi/abs/10.1145/3485832.3488007) explains the issues that prompted the development of argXtract, and documents comparisons performed between argXtract and other popular RE tools (author copy [here](https://pure.royalholloway.ac.uk/portal/files/43253473/Deriving_IoT_Security_Configurations_via_Automated_Static_Analysis_of_Stripped_ARM_Binaries.pdf)).
+Please check out the [Wiki](https://github.com/projectbtle/argXtract/wiki). It contains a detailed How-To and also explains the functionality of the tool in greater detail. Our [ACSAC '21 paper](https://dl.acm.org/doi/abs/10.1145/3485832.3488007) explains the issues that prompted the development of argXtract, and documents comparisons performed between argXtract and other popular reverse-engineering tools.
 
 ## Want to help out?
 If you happen to have real-world Cortex-M binaries *with* headers (so that we can obtain accurate disassembly) that you're happy to share with us, please let us know. Ground truth is something we're lacking right now (so far, we're generating our own test files using different technologies and compilers, but real-world examples would be so much better). Please note, you must have the right to share the binaries! 
